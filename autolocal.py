@@ -1,101 +1,123 @@
-import os
-import re
+# autolocal.py
+#!/usr/bin/env python3
+import sys
 import subprocess
+import os
 from pathlib import Path
 
-
-def find_highest_version(plugin):
+# ─── CONFIG ──────────────────────────────────────────────────────────────
+SCRIPT_DIR = Path(__file__).parent.absolute()
+SITE_ROOT_DIR = "/srv/http"
+NGINX_VHOST_DIR = "/etc/nginx/vhosts"
+HOSTS_FILE = "/etc/hosts"
+LOCALHOST_IP = "127.0.0.1"
+WP_CLI_PATH = "/usr/bin/wp"
+PHP_FPM_SOCKET = "unix:/run/php-fpm/php-fpm.sock"
+USER = "efunk"
+GROUP = "http"
+USER_GROUP = f"{USER}:{GROUP}"
+DIR_PERMS = 0o755
+FILE_PERMS = 0o644
+DEFAULT_WP_USER = "admin"
+DEFAULT_WP_PASS = "password"
+DEFAULT_WP_EMAIL = "admin@localhost.local"
+DB_USER = "funkad"
+DB_PASS = ""
+PRESETS = {
+    "wp-min": {
+        "plugins": [],
+        "themes": ["hello-elementor"],
+        "active_theme": "hello-elementor",
+        "active_plugins": []
+    },
+    "wp-mid": {
+        "plugins": ["elementor", "litespeed-cache"],
+        "themes": ["hello-elementor"],
+        "active_theme": "hello-elementor",
+        "active_plugins": ["elementor"]
+    },
+    "wp-max": {
+        "plugins": ["elementor", "litespeed-cache", "wp-mail-smtp"],
+        "themes": ["astra", "hello-elementor"],
+        "active_theme": "astra",
+        "active_plugins": ["elementor", "wp-mail-smtp"]
+    }
+}
+# ─── CLI ──────────────────────────────────────────────────────────────
+def run_script(script_name, args):
+    cmd = [sys.executable, str(SCRIPT_DIR / script_name)] + args
     try:
-        plugin_dir = Path("/home/dfunk/Projects/AUTOLOCALWP/") / plugin
-        highest_version = "0"
-        highest_version_file = ""
-        for file in plugin_dir.glob("*.zip"):
-            if subprocess.run(["unzip", "-l", str(file), "*.php"], capture_output=True, text=True).stdout:
-                version_info = subprocess.run(["unzip", "-p", str(file), "*.php"], capture_output=True, text=True).stdout
-                version_info = re.search(r"Version:\s*([\d.]+)", version_info)
-                if version_info:
-                    version = version_info.group(1)
-                    if version > highest_version:
-                        highest_version = version
-                        highest_version_file = file
-        if highest_version_file:
-            return highest_version_file
-        else:
-            raise FileNotFoundError(f"No valid plugin zip files found in {plugin_dir}")
-    except Exception as e:
-        print(f"Error in find_highest_version: {e}")
-
-
-def setup_nginx(domain):
-    with open("nginx_config_template.txt", "r") as template_file:
-        nginx_config = template_file.read().format(domain=domain)
-    with open(f"/etc/nginx/sites-available/{domain}", "w") as f:
-        f.write(nginx_config)
-    run_command(
-        "Creating symlink for Nginx configuration",
-        ["ln", "-s", f"/etc/nginx/sites-available/{domain}", f"/etc/nginx/sites-enabled/{domain}"]
-    )
-    run_command(
-        "Restarting Nginx",
-        ["systemctl", "restart", "nginx"],
-    )
-    with open("/etc/hosts", "a") as f:
-        f.write(f"127.0.0.1 {domain}.local\n")
-
-
-def run_command( desc, command ):
-    try:
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
-        error = re.sub(r'\\n', ' ', result.stdout)
-        print(f"\033[92mSUCCE\033[0m '{desc}'")
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout, end='')
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        return True
     except subprocess.CalledProcessError as e:
-        error = re.sub(r'\\n', ' ', e.stderr)
-        print(f"\033[91mERROR\033[0m '{desc}'")
+        print(f"\nFAIL: {script_name} failed (exit code {e.returncode})", file=sys.stderr)
+        print(f"COMMAND: {' '.join(cmd)}", file=sys.stderr)
+        if e.stdout:
+            print("--- stdout ---", file=sys.stderr)
+            print(e.stdout, file=sys.stderr)
+        if e.stderr:
+            print("--- stderr ---", file=sys.stderr)
+            print(e.stderr, file=sys.stderr)
+        print(f"END OF {script_name} FAILURE REPORT\n", file=sys.stderr)
+        return False
 
-
-def setup_wordpress(domain):
-    sudo_cmd = ["sudo", "-u", "dfunk", "-i", "--"]
-    wp_cmd = ["wp", f"--path=/var/www/{domain}"]
-    swp_cmd = sudo_cmd + wp_cmd
-    plugins = {
-        'uninstall': ["akismet", "hello"],
-        'install': ["elementor", "litespeed-cache"],
-        'activate': ["elementor"],
-        'install_paid': ["updraftplus", "elementor-pro"]
-    }
-    themes = {
-        'install': ["hello-elementor"]
-    }
-    setup_commands = [
-        ("Creating directory for WordPress installation", ["mkdir",  "-p", f"/var/www/{domain}"]),
-        ("Downloading WordPress core",                    ["core",   "download"]),
-        ("Creating WordPress configuration",              ["config", "create", "--dbname=" + domain, "--dbuser=funkad", "--dbpass="]),
-        ("Creating WordPress database",                   ["db",     "create"]),
-        ("Installing WordPress core",                     ["core",   "install", "--url=" + domain + ".local", "--title=" + domain, "--admin_user=FunkAd", "--admin_password=pass", "--admin_email=wordpress@" + domain + ".local"]),
-        ("Disabling search engine visibility",            ["option", "update", "blog_public", "0"]),
-        ("Creating home page",                            ["post",   "create", "--post_type=page", "--post_title=Home", "--post_status=publish"]),
-        ("Setting front page to static page",             ["option", "update", "show_on_front", "page"])
+def create_site(domain, preset):
+    if preset not in PRESETS:
+        print(f"FAIL: Invalid preset '{preset}'", file=sys.stderr)
+        return False
+    scripts = [
+        ("nginx_setup.py", [domain]),
+        ("wp_setup.py", [domain, "--preset", preset]),
+        ("dns_local.py", [domain])
     ]
-    for description, command in setup_commands:
-        run_command(description, swp_cmd + command)
-    os.chdir(f"/var/www/{domain}")
-    for action, plugin_list in plugins.items():
-        for plugin in plugin_list:
-            if action == 'install_paid':
-                highest_version_file = find_highest_version(plugin)
-                if highest_version_file:
-                    run_command(f"Installing plugin {plugin}", swp_cmd + ["plugin", "install", f"file://{highest_version_file}", "--activate"])
-            else:
-                run_command(f"{action.capitalize()}ing plugin {plugin}", swp_cmd + ["plugin", action, plugin])
-    for action, theme_list in themes.items():
-        for theme in theme_list:
-            run_command(f"{action.capitalize()}ing theme {theme}", swp_cmd + ["theme", action, theme])
-            if action == 'install':
-                run_command(f"Activating theme {theme}", swp_cmd + ["theme", "activate", theme])
+    for script_name, script_args in scripts:
+        if not run_script(script_name, script_args):
+            return False
+    print(f"PASS: Site {domain} created successfully")
+    return True
 
+def remove_site(domain):
+    scripts = [
+        ("nginx_setup.py", [domain, "--remove"]),
+        ("dns_local.py", [domain, "--remove"])
+    ]
+    for script_name, script_args in scripts:
+        if not run_script(script_name, script_args):
+            return False
+    site_dir = Path(SITE_ROOT_DIR) / domain
+    if site_dir.exists():
+        try:
+            subprocess.run(["sudo", "rm", "-rf", str(site_dir)], check=True)
+            print(f"PASS: Removed site directory {site_dir}")
+        except subprocess.CalledProcessError:
+            print(f"FAIL: Could not remove site directory {site_dir}", file=sys.stderr)
+            return False
+    print(f"PASS: Site {domain} removed successfully")
+    return True
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: autolocal.py --create DOMAIN [--preset wp-min|wp-mid|wp-max] | --remove DOMAIN", file=sys.stderr)
+        sys.exit(1)
+    if sys.argv[1] == "--create":
+        domain = sys.argv[2]
+        preset = "wp-mid"
+        if "--preset" in sys.argv:
+            idx = sys.argv.index("--preset")
+            preset = sys.argv[idx + 1]
+        ok = create_site(domain, preset)
+        sys.exit(0 if ok else 1)
+    elif sys.argv[1] == "--remove":
+        domain = sys.argv[2]
+        ok = remove_site(domain)
+        sys.exit(0 if ok else 1)
+    else:
+        print("Must specify --create or --remove", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
-    import sys
-    domain = sys.argv[1]
-    setup_nginx(domain)
-    setup_wordpress(domain)
+    main()
