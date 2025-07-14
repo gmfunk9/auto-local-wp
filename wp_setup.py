@@ -97,6 +97,9 @@ def configure_wordpress(domain, preset_config):
     return True
 
 def setup_wordpress(domain, preset):
+    if preset == "no-wp":
+        print(f"SKIP: WordPress setup skipped for preset '{preset}'")
+        return True
     preset_config = PRESETS[preset]
     if not install_wordpress(domain):
         return False
@@ -111,7 +114,7 @@ def setup_wordpress(domain, preset):
 
 def main():
     domain = sys.argv[1]
-    preset = "wp-mid"
+    preset = "wp"
     if "--preset" in sys.argv:
         idx = sys.argv.index("--preset")
         preset = sys.argv[idx + 1]

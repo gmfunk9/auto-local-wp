@@ -13,7 +13,7 @@ HOSTS_FILE = "/etc/hosts"
 LOCALHOST_IP = "127.0.0.1"
 WP_CLI_PATH = "/usr/bin/wp"
 PHP_FPM_SOCKET = "unix:/run/php-fpm/php-fpm.sock"
-USER = "efunk"
+USER = "ffunk"
 GROUP = "http"
 USER_GROUP = f"{USER}:{GROUP}"
 DIR_PERMS = 0o755
@@ -24,19 +24,8 @@ DEFAULT_WP_EMAIL = "admin@localhost.local"
 DB_USER = "funkad"
 DB_PASS = ""
 PRESETS = {
-    "wp-min": {
-        "plugins": [],
-        "themes": ["hello-elementor"],
-        "active_theme": "hello-elementor",
-        "active_plugins": []
-    },
-    "wp-mid": {
-        "plugins": ["elementor", "litespeed-cache"],
-        "themes": ["hello-elementor"],
-        "active_theme": "hello-elementor",
-        "active_plugins": ["elementor"]
-    },
-    "wp-max": {
+    "no-wp": None,
+    "wp": {
         "plugins": ["elementor", "litespeed-cache", "wp-mail-smtp"],
         "themes": ["astra", "hello-elementor"],
         "active_theme": "astra",
@@ -70,10 +59,12 @@ def create_site(domain, preset):
         print(f"FAIL: Invalid preset '{preset}'", file=sys.stderr)
         return False
     scripts = [
-        ("nginx_setup.py", [domain]),
-        ("wp_setup.py", [domain, "--preset", preset]),
-        ("dns_local.py", [domain])
+        ("nginx_setup.py", [domain])
     ]
+    # Only call wp_setup if preset is not "no-wp"
+    if preset != "no-wp":
+        scripts.append(("wp_setup.py", [domain, "--preset", preset]))
+    scripts.append(("dns_local.py", [domain]))
     for script_name, script_args in scripts:
         if not run_script(script_name, script_args):
             return False
@@ -101,15 +92,22 @@ def remove_site(domain):
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: autolocal.py --create DOMAIN [--preset wp-min|wp-mid|wp-max] | --remove DOMAIN", file=sys.stderr)
+        print("Usage: autolocal.py --create DOMAIN [--preset wp|no-wp] | --remove DOMAIN", file=sys.stderr)
         sys.exit(1)
     if sys.argv[1] == "--create":
         domain = sys.argv[2]
-        preset = "wp-mid"
+        preset = "wp"
         if "--preset" in sys.argv:
             idx = sys.argv.index("--preset")
             preset = sys.argv[idx + 1]
         ok = create_site(domain, preset)
+        # Fix perms so PHP can write
+        full_site_dir = Path(SITE_ROOT_DIR) / domain
+        if full_site_dir.exists():
+            subprocess.run(["sudo", "chown", "-R", f"{USER}:{GROUP}", str(full_site_dir)], check=True)
+            subprocess.run(["sudo", "find", str(full_site_dir), "-type", "d", "-exec", "chmod", "2775", "{}", ";"], check=True)
+            subprocess.run(["sudo", "find", str(full_site_dir), "-type", "f", "-exec", "chmod", "664", "{}", ";"], check=True)
+        print(f"PASS: Site {domain} created successfully")
         sys.exit(0 if ok else 1)
     elif sys.argv[1] == "--remove":
         domain = sys.argv[2]
