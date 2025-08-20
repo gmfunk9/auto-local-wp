@@ -1,0 +1,74 @@
+# Core settings and Elementor defaults
+option update blog_public 0
+option update elementor_onboarded 1
+option update permalink_structure /%postname%/
+option update elementor_allow_tracking no
+option update elementor_meta_generator_tag 0
+option update elementor_css_print_method external
+option update elementor_google_font 0
+option update elementor_unfiltered_files_upload 0
+option update elementor_disable_color_schemes 1
+option update elementor_disable_typography_schemes 1
+option update default_comment_status closed
+option update elementor_experiment-hello-theme-header-footer default
+option update hello_elementor_settings_description_meta_tag true
+option update hello_elementor_settings_skip_link false
+option update hello_elementor_settings_header_footer true
+option update hello_elementor_settings_page_title true
+option update hello_elementor_settings_hello_style false
+option update hello_elementor_settings_hello_theme false
+option update default_pingback_flag 0
+option update default_ping_status closed
+option update default_comment_status closed
+option update require_name_email 0
+option update comment_registration 0
+option update close_comments_for_old_posts 1
+option update close_comments_days_old 0
+option update show_comments_cookies_opt_in 0
+option update thread_comments 0
+option update page_comments 0
+option update comments_per_page 0
+option update default_comments_page newest
+option update comment_order desc
+option update comments_notify 0
+option update moderation_notify 0
+option update comment_moderation 1
+option update comment_whitelist 0
+option update comment_max_links 0
+option update moderation_keys ''
+option update disallowed_keys ''
+option update show_avatars 0
+option update avatar_default blank
+option update avatar_rating G
+option update thumbnail_size_w 160
+option update thumbnail_size_h 160
+option update thumbnail_crop 1
+option update medium_size_w 320
+option update medium_size_h 320
+option update large_size_w 1024
+option update large_size_h 1024
+option update timezone_string UTC
+option update date_format Y-m-d
+option update time_format H:i
+option update start_of_week 1
+option update users_can_register 0
+option update default_role subscriber
+option update blogdescription ''
+option update use_smilies 0
+option update rss_use_excerpt 1
+option update auto_update_core_minor 1
+option update auto_update_core_major 1
+
+# Cleanup and permalinks
+rewrite flush --hard
+post delete 1 --force
+post delete 2 --force
+theme delete twentytwentyone
+theme delete twentytwentytwo
+theme delete twentytwentythree
+theme delete twentytwentyfour
+plugin delete akismet
+plugin delete hello
+
+post create --post_type=wpforms --post_status=publish --post_title="Contact Us" --post_content="$(cat /home/ffunk/codex/web_projects/auto-local-wp/data/wp_form-simple.json)"
+

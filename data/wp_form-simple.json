@@ -1,0 +1,36 @@
+{
+  "id": "fp-1",
+  "field_id": 4,
+  "fields": {
+    "1": { "id": "1", "type": "name", "label": "Name", "format": "simple", "size": "large", "css": "wpforms-one-half wpforms-first" },
+    "2": { "id": "2", "type": "email", "label": "Email", "size": "large", "css": "wpforms-one-half" },
+    "3": { "id": "3", "type": "textarea", "label": "Message", "size": "medium", "limit_enabled": "1", "limit_count": "512", "limit_mode": "words", "css": "" }
+  },
+  "settings": {
+    "form_title": "fp_contact_form",
+    "submit_text": "Submit",
+    "notification_enable": "1",
+    "notifications": {
+      "1": {
+        "email": "{admin_email}",
+        "subject": "New Contact Form Entry",
+        "message": "{all_fields}"
+      }
+    },
+    "confirmations": {
+      "1": {
+        "type": "message",
+        "message": "<p>Thanks for contacting us. We will be in touch shortly.</p>"
+      }
+    },
+    "anti_spam": {
+      "time_limit": { "duration": "2" },
+      "filtering_store_spam": "1"
+    },
+    "themes": {
+      "wpformsTheme": "default",
+      "copyPasteJsonValue": "{\"themeName\":\"\",\"isCustomTheme\":\"\",\"wpformsTheme\":\"default\",\"customCss\":\"\",\"containerPadding\":\"0\",\"containerBorderStyle\":\"none\",\"containerBorderWidth\":\"1\",\"containerBorderRadius\":\"3\",\"containerShadowSize\":\"none\",\"containerBorderColor\":\"#000000\",\"fieldSize\":\"medium\",\"fieldBorderStyle\":\"solid\",\"fieldBorderRadius\":\"3\",\"fieldBorderSize\":\"1\",\"fieldBackgroundColor\":\"#ffffff\",\"fieldBorderColor\":\"rgba(0, 0, 0, 0.25)\",\"fieldTextColor\":\"rgba(0, 0, 0, 0.7)\",\"labelSize\":\"medium\",\"labelColor\":\"rgba(0, 0, 0, 0.85)\",\"labelSublabelColor\":\"rgba(0, 0, 0, 0.55)\",\"labelErrorColor\":\"#d63637\",\"buttonSize\":\"medium\",\"buttonBorderStyle\":\"none\",\"buttonBorderSize\":\"1\",\"buttonBorderRadius\":\"3\",\"buttonBackgroundColor\":\"#066aab\",\"buttonBorderColor\":\"#066aab\",\"buttonTextColor\":\"#ffffff\",\"containerPadding\":\"0\",\"containerBorderStyle\":\"none\",\"containerBorderWidth\":\"1\",\"containerBorderRadius\":\"3\",\"containerBorderColor\":\"#000000\",\"containerShadowSize\":\"none\",\"backgroundColor\":\"rgba(0, 0, 0, 0)\",\"backgroundImage\":\"none\",\"backgroundSize\":\"cover\",\"backgroundUrl\":\"url()\",\"fieldMenuColor\":\"#ffffff\",\"pageBreakColor\":\"#066aab\"}"
+    }
+  }
+}
+

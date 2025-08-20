@@ -1,121 +1,144 @@
-# autolocal.py
 #!/usr/bin/env python3
+"""CLI to provision or remove local WordPress sites.
+
+Inputs: domain via CLI flags.
+Side effects: creates Nginx vhost, site directory, runs wp-cli, updates
+/etc/hosts, and reloads Nginx. Removal deletes vhost and site directory
+and cleans hosts entry.
+"""
 import sys
 import subprocess
-import os
 from pathlib import Path
+from config import SITE_ROOT_DIR
+from modules.utils import run_cmd, log
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent.absolute()
-SITE_ROOT_DIR = "/srv/http"
-NGINX_VHOST_DIR = "/etc/nginx/vhosts"
-HOSTS_FILE = "/etc/hosts"
-LOCALHOST_IP = "127.0.0.1"
-WP_CLI_PATH = "/usr/bin/wp"
-PHP_FPM_SOCKET = "unix:/run/php-fpm/php-fpm.sock"
-USER = "ffunk"
-GROUP = "http"
-USER_GROUP = f"{USER}:{GROUP}"
-DIR_PERMS = 0o755
-FILE_PERMS = 0o644
-DEFAULT_WP_USER = "admin"
-DEFAULT_WP_PASS = "password"
-DEFAULT_WP_EMAIL = "admin@localhost.local"
-DB_USER = "funkad"
-DB_PASS = ""
-PRESETS = {
-    "no-wp": None,
-    "wp": {
-        "plugins": ["elementor", "litespeed-cache", "wp-mail-smtp"],
-        "themes": ["astra", "hello-elementor"],
-        "active_theme": "astra",
-        "active_plugins": ["elementor", "wp-mail-smtp"]
-    }
-}
+MOD_NGINX = "modules.nginx"
+MOD_DNS = "modules.dns"
+MOD_WP = "modules.wordpress"
+FLAG_CREATE = "--create"
+FLAG_REMOVE = "--remove"
+FLAG_PREFLIGHT = "--preflight"
 # ─── CLI ──────────────────────────────────────────────────────────────
-def run_script(script_name, args):
-    cmd = [sys.executable, str(SCRIPT_DIR / script_name)] + args
+def run_script(script_name: str, args: list[str]) -> bool:
+    cmd = [sys.executable, "-m", script_name] + args
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        if result.stdout:
-            print(result.stdout, end='')
-        if result.stderr:
-            print(result.stderr, file=sys.stderr)
+        run_cmd(cmd)
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"\nFAIL: {script_name} failed (exit code {e.returncode})", file=sys.stderr)
+    except subprocess.CalledProcessError as err:
+        print(
+            f"FAIL: {script_name} failed (exit {err.returncode})",
+            file=sys.stderr,
+        )
         print(f"COMMAND: {' '.join(cmd)}", file=sys.stderr)
-        if e.stdout:
-            print("--- stdout ---", file=sys.stderr)
-            print(e.stdout, file=sys.stderr)
-        if e.stderr:
-            print("--- stderr ---", file=sys.stderr)
-            print(e.stderr, file=sys.stderr)
-        print(f"END OF {script_name} FAILURE REPORT\n", file=sys.stderr)
         return False
 
-def create_site(domain, preset):
-    if preset not in PRESETS:
-        print(f"FAIL: Invalid preset '{preset}'", file=sys.stderr)
-        return False
-    scripts = [
-        ("nginx_setup.py", [domain])
-    ]
-    # Only call wp_setup if preset is not "no-wp"
-    if preset != "no-wp":
-        scripts.append(("wp_setup.py", [domain, "--preset", preset]))
-    scripts.append(("dns_local.py", [domain]))
-    for script_name, script_args in scripts:
-        if not run_script(script_name, script_args):
-            return False
-    print(f"PASS: Site {domain} created successfully")
-    return True
 
-def remove_site(domain):
-    scripts = [
-        ("nginx_setup.py", [domain, "--remove"]),
-        ("dns_local.py", [domain, "--remove"])
-    ]
-    for script_name, script_args in scripts:
-        if not run_script(script_name, script_args):
-            return False
+# ─── Orchestration Steps ───────────────────────────────────────────────
+def step_wp_preflight(domain: str) -> bool:
+    return run_script(MOD_WP, [FLAG_PREFLIGHT, domain])
+
+
+def step_nginx_write(domain: str) -> bool:
+    return run_script(MOD_NGINX, ["write", domain])
+
+
+def step_nginx_test() -> bool:
+    return run_script(MOD_NGINX, ["test"])
+
+
+def step_nginx_reload() -> bool:
+    return run_script(MOD_NGINX, ["reload"])
+
+
+def step_dns_add(domain: str) -> bool:
+    return run_script(MOD_DNS, [domain])
+
+
+def step_dns_remove(domain: str) -> bool:
+    return run_script(MOD_DNS, [domain, FLAG_REMOVE])
+
+
+def step_wp_create(domain: str) -> bool:
+    # Keep combined create for now; internals are already decomposed.
+    return run_script(MOD_WP, [FLAG_CREATE, domain])
+
+
+def step_wp_remove(domain: str) -> bool:
+    return run_script(MOD_WP, [FLAG_REMOVE, domain])
+
+
+def _is_safe_site_dir(path: Path, domain: str) -> bool:
+    try:
+        resolved = path.resolve()
+        root = Path(SITE_ROOT_DIR).resolve()
+        return resolved.is_relative_to(root) and resolved.name == domain
+    except Exception:
+        return False
+
+
+def remove_site_dir(domain: str) -> bool:
     site_dir = Path(SITE_ROOT_DIR) / domain
-    if site_dir.exists():
-        try:
-            subprocess.run(["sudo", "rm", "-rf", str(site_dir)], check=True)
-            print(f"PASS: Removed site directory {site_dir}")
-        except subprocess.CalledProcessError:
-            print(f"FAIL: Could not remove site directory {site_dir}", file=sys.stderr)
-            return False
-    print(f"PASS: Site {domain} removed successfully")
+    if not site_dir.exists():
+        return True
+    if not _is_safe_site_dir(site_dir, domain):
+        print(f"FAIL: Unsafe remove path {site_dir}", file=sys.stderr)
+        return False
+    try:
+        run_cmd(["sudo", "rm", "-rf", str(site_dir)])
+        log(f"PASS: Removed site directory {site_dir}")
+        return True
+    except subprocess.CalledProcessError:
+        print(f"FAIL: Could not remove site directory {site_dir}", file=sys.stderr)
+        return False
+
+def provision_site(domain: str) -> bool:
+    if not step_wp_preflight(domain):
+        return False
+    if not step_nginx_write(domain):
+        return False
+    if not step_nginx_test():
+        return False
+    if not step_nginx_reload():
+        return False
+    if not step_dns_add(domain):
+        return False
+    if not step_wp_create(domain):
+        return False
+    log(f"PASS: Site {domain} created successfully")
     return True
 
-def main():
-    if len(sys.argv) < 3:
-        print("Usage: autolocal.py --create DOMAIN [--preset wp|no-wp] | --remove DOMAIN", file=sys.stderr)
-        sys.exit(1)
-    if sys.argv[1] == "--create":
-        domain = sys.argv[2]
-        preset = "wp"
-        if "--preset" in sys.argv:
-            idx = sys.argv.index("--preset")
-            preset = sys.argv[idx + 1]
-        ok = create_site(domain, preset)
-        # Fix perms so PHP can write
-        full_site_dir = Path(SITE_ROOT_DIR) / domain
-        if full_site_dir.exists():
-            subprocess.run(["sudo", "chown", "-R", f"{USER}:{GROUP}", str(full_site_dir)], check=True)
-            subprocess.run(["sudo", "find", str(full_site_dir), "-type", "d", "-exec", "chmod", "2775", "{}", ";"], check=True)
-            subprocess.run(["sudo", "find", str(full_site_dir), "-type", "f", "-exec", "chmod", "664", "{}", ";"], check=True)
-        print(f"PASS: Site {domain} created successfully")
-        sys.exit(0 if ok else 1)
-    elif sys.argv[1] == "--remove":
-        domain = sys.argv[2]
-        ok = remove_site(domain)
-        sys.exit(0 if ok else 1)
-    else:
-        print("Must specify --create or --remove", file=sys.stderr)
-        sys.exit(1)
+def remove_site(domain: str) -> bool:
+    if not run_script(MOD_NGINX, ["remove", domain]):
+        return False
+    if not step_nginx_test():
+        return False
+    if not step_nginx_reload():
+        return False
+    if not step_dns_remove(domain):
+        return False
+    if not remove_site_dir(domain):
+        return False
+    if not step_wp_remove(domain):
+        return False
+    log(f"PASS: Site {domain} removed successfully")
+    return True
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        print(
+            "Usage: autolocal.py --create DOMAIN | --remove DOMAIN",
+            file=sys.stderr,
+        )
+        return 1
+    action, domain = argv[0], argv[1]
+    if action == FLAG_CREATE:
+        return 0 if provision_site(domain) else 1
+    if action == FLAG_REMOVE:
+        return 0 if remove_site(domain) else 1
+    print("Must specify --create or --remove", file=sys.stderr)
+    return 1
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv[1:]))

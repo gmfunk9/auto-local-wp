@@ -1,4 +1,0 @@
-sudo python autolocal.py --create WEBSITENAMEHERE.local --preset no-wp
-
-user:admin
-pass:password
