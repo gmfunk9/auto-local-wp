@@ -12,6 +12,8 @@ import logging
 import shutil
 from pathlib import Path
 import subprocess
+import re
+from urllib.parse import urlsplit
 
 from config import (
     SITE_ROOT_DIR,
@@ -20,7 +22,7 @@ from config import (
 )
 from modules.utils import log
 from .cli import wp_cmd, wp_cmd_capture
-from .site import get_site_plugins_dir
+from .site import get_site_plugins_dir, _ensure_page as _ensure_page
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
@@ -42,7 +44,8 @@ def _append_agent_activity_log(line: str) -> None:
 
 
 VAULT_SITE = Path("/srv/http/funkpd_plugin_vault.local")
-VAULT = VAULT_SITE / "wp-content"
+# Vault content root (wp-content). Keep separate from VAULT_SITE (site root).
+VAULT_CONTENT = VAULT_SITE / "wp-content"
 
 def install_custom_plugins(domain: str) -> bool:
     """
@@ -63,7 +66,7 @@ def install_custom_plugins(domain: str) -> bool:
         return False
 
     for subdir, dest_base in (("plugins", dest_plugins), ("mu-plugins", dest_mu)):
-        src_dir = VAULT / subdir
+        src_dir = VAULT_CONTENT / subdir
         if not src_dir.exists():
             continue
         for src in src_dir.iterdir():
@@ -151,7 +154,7 @@ def install_custom_themes(domain: str) -> bool:
     except Exception as err:
         logging.error("Could not ensure themes dir: %s", err)
         return False
-    src_dir = VAULT / "themes"
+    src_dir = VAULT_CONTENT / "themes"
     if not src_dir.exists():
         return True
     for src in src_dir.iterdir():
@@ -474,4 +477,146 @@ def provision_elementor(domain: str) -> bool:
 
     _append_agent_activity_log(f"provision_elementor domain={domain} pages={seeded}")
     log(f"PASS: Elementor seeding complete for {seeded} pages")
+    return True
+
+
+# ─── Elementor Seeding From Vault Pages (Preset) ────────────────────────
+
+def _vault_wp_capture(args: list[str]) -> tuple[bool, str]:
+    try:
+        proc = subprocess.run(
+            ["sudo", "-u", "http", "wp", f"--path={VAULT_SITE}", *args, "--quiet"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception as err:
+        logging.error("Vault wp failed: %s", err)
+        return False, ""
+    if proc.returncode != 0:
+        logging.error("Vault wp error: %s", (proc.stderr or "").strip())
+        return False, (proc.stdout or "").strip()
+    return True, (proc.stdout or "").strip()
+
+
+def _vault_page_id_for_slug(slug: str) -> str:
+    ok, out = _vault_wp_capture([
+        "post", "list", "--post_type=page", f"--name={slug}", "--field=ID",
+    ])
+    return (out or "").strip() if ok else ""
+
+
+def _vault_get_meta(post_id: str, key: str) -> str:
+    ok, out = _vault_wp_capture(["post", "meta", "get", post_id, key])
+    return (out or "").strip() if ok else ""
+
+
+def _first_upload_url(blob: str) -> tuple[str, str]:
+    if not blob:
+        return "", ""
+    m = re.search(r"http[^\"]+uploads[^\"]+\.(jpg|jpeg|png|webp)", blob, re.I)
+    if not m:
+        return "", ""
+    raw = m.group(0)
+    clean = raw.replace("\\/", "/")
+    host = urlsplit(clean).netloc
+    return clean, host
+
+
+def _import_media_from_vault(domain: str, clean_url: str) -> str:
+    if not clean_url:
+        return ""
+    idx = clean_url.find("/wp-content/")
+    if idx == -1:
+        return ""
+    rel = clean_url[idx:]  # keep '/wp-content/uploads/...'
+    src = VAULT_SITE / rel.lstrip("/")  # join to vault site root
+    ok, out, _ = wp_cmd_capture(domain, ["media", "import", str(src), "--porcelain"])
+    return (out or "").strip() if ok else ""
+
+
+def _parse_preset(preset: str) -> tuple[str, str]:
+    if not preset:
+        return "", ""
+    if "-" not in preset:
+        return preset, "1"
+    key, ver = preset.rsplit("-", 1)
+    return key, ver
+
+
+def provision_elementor_from_vault_preset(domain: str, preset: str) -> bool:
+    key, ver = _parse_preset(preset)
+    if not key or not ver:
+        logging.error("Invalid preset value: %s", preset)
+        return False
+
+    version = _get_elementor_version(domain)
+    if not version:
+        logging.error("Could not read Elementor version")
+        return False
+
+    pages: list[tuple[str, str]] = [
+        ("home", "Home"),
+        ("about", "About"),
+        ("contact", "Contact"),
+    ]
+
+    seeded = 0
+    for slug, title in pages:
+        vault_slug = f"{key}-{slug}-{ver}"
+        vid = _vault_page_id_for_slug(vault_slug)
+        if not vid:
+            logging.error("Vault page not found: %s", vault_slug)
+            return False
+        blob = _vault_get_meta(vid, "_elementor_data")
+        if not blob:
+            logging.error("No _elementor_data for vault page %s", vault_slug)
+            return False
+
+        clean_url, vault_host = _first_upload_url(blob)
+        newid = ""
+        if clean_url:
+            newid = _import_media_from_vault(domain, clean_url)
+            if not newid:
+                logging.error("Media import failed for %s", clean_url)
+                return False
+
+        blob2 = blob.replace("\\/", "/")
+        if vault_host:
+            blob2 = blob2.replace(vault_host, domain)
+        if newid:
+            blob2 = re.sub(r"\"id\":\s*\d+", f'"id": {newid}', blob2, count=1)
+
+        page_id = _ensure_page(domain, title=title, slug=slug, content="")
+        if page_id <= 0:
+            logging.error("Could not ensure page %s", slug)
+            return False
+
+        if not wp_cmd(domain, [
+            "post", "meta", "update", str(page_id), "_elementor_edit_mode", "builder",
+        ]):
+            logging.error("Could not set _elementor_edit_mode")
+            return False
+        if not wp_cmd(domain, [
+            "post", "meta", "update", str(page_id), "_elementor_version", version,
+        ]):
+            logging.error("Could not set _elementor_version")
+            return False
+        if not wp_cmd(domain, [
+            "post", "meta", "update", str(page_id), "_elementor_data", blob2,
+        ]):
+            logging.error("Could not set _elementor_data on %s", slug)
+            return False
+
+        seeded += 1
+        log(f"PASS: Seeded {slug}:{page_id} from vault {vault_slug}")
+
+    if not wp_cmd(domain, ["elementor", "flush_css"]):
+        logging.error("Elementor CSS flush failed")
+        return False
+
+    _append_agent_activity_log(
+        f"provision_elementor_from_vault preset={preset} domain={domain} pages={seeded}"
+    )
+    log(f"PASS: Vault Elementor seeding complete for {seeded} pages")
     return True

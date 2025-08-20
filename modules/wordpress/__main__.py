@@ -41,12 +41,17 @@ def main() -> int:
             logging.error("Missing domain")
             return 1
         domain = args[0]
+        preset = None
+        for f in flags:
+            if f.startswith("--preset="):
+                preset = f.split("=", 1)[1]
+                break
         if "--remove" in flags:
             return 0 if remove_wordpress(domain) else 1
         if "--preflight" in flags:
             return 0 if preflight_create(domain) else 1
         if "--create" in flags:
-            return 0 if setup_wordpress(domain) else 1
+            return 0 if setup_wordpress(domain, preset=preset) else 1
         logging.error("Unknown flag")
         return 1
     cmd = args[0]

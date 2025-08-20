@@ -30,6 +30,7 @@ from .plugins import (
     prune_themes_not_in_vault,
     remove_default_plugins,
     provision_elementor,
+    provision_elementor_from_vault_preset,
 )
 from .cli import wp_cmd
 
@@ -102,7 +103,7 @@ def preflight_create(domain: str) -> bool:
     return True
 
 
-def setup_wordpress(domain: str) -> bool:
+def setup_wordpress(domain: str, preset: str | None = None) -> bool:
     if not install_wordpress(domain):
         return False
     # Remove default bundled plugins before installing vault plugins
@@ -120,8 +121,12 @@ def setup_wordpress(domain: str) -> bool:
     # Run custom WP-CLI commands from data/wp_cli_commands.txt
     if not _run_wp_cli_commands_file(domain):
         return False
-    if not provision_elementor(domain):
-        return False
+    if preset:
+        if not provision_elementor_from_vault_preset(domain, preset):
+            return False
+    else:
+        if not provision_elementor(domain):
+            return False
     if not setup_starter_pages_and_menu(domain):
         return False
     if not enable_auto_updates(domain):

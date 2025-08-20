@@ -20,6 +20,7 @@ MOD_WP = "modules.wordpress"
 FLAG_CREATE = "--create"
 FLAG_REMOVE = "--remove"
 FLAG_PREFLIGHT = "--preflight"
+FLAG_PRESET = "--preset"
 # ─── CLI ──────────────────────────────────────────────────────────────
 def run_script(script_name: str, args: list[str]) -> bool:
     cmd = [sys.executable, "-m", script_name] + args
@@ -60,9 +61,12 @@ def step_dns_remove(domain: str) -> bool:
     return run_script(MOD_DNS, [domain, FLAG_REMOVE])
 
 
-def step_wp_create(domain: str) -> bool:
+def step_wp_create(domain: str, preset: str | None = None) -> bool:
     # Keep combined create for now; internals are already decomposed.
-    return run_script(MOD_WP, [FLAG_CREATE, domain])
+    args = [FLAG_CREATE, domain]
+    if preset:
+        args.append(f"{FLAG_PRESET}={preset}")
+    return run_script(MOD_WP, args)
 
 
 def step_wp_remove(domain: str) -> bool:
@@ -93,7 +97,7 @@ def remove_site_dir(domain: str) -> bool:
         print(f"FAIL: Could not remove site directory {site_dir}", file=sys.stderr)
         return False
 
-def provision_site(domain: str) -> bool:
+def provision_site(domain: str, preset: str | None = None) -> bool:
     if not step_wp_preflight(domain):
         return False
     if not step_nginx_write(domain):
@@ -104,7 +108,7 @@ def provision_site(domain: str) -> bool:
         return False
     if not step_dns_add(domain):
         return False
-    if not step_wp_create(domain):
+    if not step_wp_create(domain, preset=preset):
         return False
     log(f"PASS: Site {domain} created successfully")
     return True
@@ -133,8 +137,22 @@ def main(argv: list[str]) -> int:
         )
         return 1
     action, domain = argv[0], argv[1]
+    # Optional --preset=KEY-V passthrough
+    preset = None
+    for a in argv[2:]:
+        if a.startswith(f"{FLAG_PRESET}="):
+            preset = a.split("=", 1)[1]
+            break
     if action == FLAG_CREATE:
-        return 0 if provision_site(domain) else 1
+        # Provision site and pass preset along to WP module
+        ok = provision_site(domain, preset=preset)
+        if not ok:
+            return 1
+        # When provisioning succeeds, run seeding with preset via WP module
+        # by invoking create with preset inside step_wp_create.
+        # The WP module handles the flag.
+        # Already executed step_wp_create inside provision_site; nothing else here.
+        return 0
     if action == FLAG_REMOVE:
         return 0 if remove_site(domain) else 1
     print("Must specify --create or --remove", file=sys.stderr)
