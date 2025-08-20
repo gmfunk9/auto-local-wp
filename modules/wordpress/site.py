@@ -25,75 +25,6 @@ def ensure_site_dir(domain: str) -> bool:
         return False
 
 
-def _load_tsv(filename: str) -> list[tuple[str, str]]:
-    path = DATA_DIR / filename
-    if not path.exists():
-        return []
-    items: list[tuple[str, str]] = []
-    try:
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                continue
-            name = parts[0].strip()
-            status = parts[1].strip().lower()
-            if status not in ("active", "disabled") or not name:
-                continue
-            items.append((name, status))
-    except Exception as err:
-        logging.error("Could not read %s: %s", path, err)
-        return []
-    return items
-
-
-def _plugins_from_tsv() -> tuple[list[str], list[str]]:
-    items = _load_tsv("plugins.tsv")
-    install = [name for name, _ in items]
-    active = [name for name, st in items if st == "active"]
-    return install, active
-
-
-def _themes_from_tsv() -> tuple[list[str], list[str]]:
-    items = _load_tsv("themes.tsv")
-    install = [name for name, _ in items]
-    active = [name for name, st in items if st == "active"]
-    return install, active
-
-
-def _read_wp_cli_commands() -> list[str]:
-    path = DATA_DIR / "wp_cli_commands.txt"
-    if not path.exists():
-        return []
-    commands: list[str] = []
-    try:
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            commands.append(line)
-    except Exception as err:
-        logging.error("Could not read %s: %s", path, err)
-        return []
-    return commands
-
-
-def _custom_plugins_dir() -> Path:
-    return DATA_DIR / "custom-plugins"
-
-
-def list_custom_plugins() -> list[Path]:
-    base = _custom_plugins_dir()
-    if not base.exists() or not base.is_dir():
-        return []
-    try:
-        return [p for p in base.iterdir() if p.is_dir()]
-    except Exception:
-        return []
-
-
 def get_site_plugins_dir(domain: str) -> Path:
     site_path = Path(SITE_ROOT_DIR) / domain
     return site_path / "wp-content" / "plugins"
@@ -105,40 +36,7 @@ def _append_unique(items: list[str], value: str) -> None:
     items.append(value)
 
 
-def build_preset_config() -> dict:
-    plugins, active_plugins = _plugins_from_tsv()
-    if not plugins:
-        plugins, active_plugins = ["elementor"], ["elementor"]
-
-    items = _load_tsv("plugins.tsv")
-    status = {name: st for name, st in items}
-    for p in list_custom_plugins():
-        slug = p.name
-        if status.get(slug, "active") != "disabled":
-            _append_unique(active_plugins, slug)
-
-    themes, active_themes = _themes_from_tsv()
-    if not themes:
-        themes, active_themes = ["hello-elementor"], ["hello-elementor"]
-    active_theme = active_themes[0] if active_themes else "hello-elementor"
-    return {
-        "plugins": plugins,
-        "active_plugins": active_plugins,
-        "themes": themes,
-        "active_theme": active_theme,
-    }
-
-
-def apply_preset_config(domain: str, preset_config: dict) -> bool:
-    commands = _read_wp_cli_commands()
-    commands.append(f"theme activate {preset_config['active_theme']}")
-    for plugin in preset_config["active_plugins"]:
-        commands.append(f"plugin activate {plugin}")
-    for cmd in commands:
-        if not wp_cmd(domain, cmd):
-            logging.error("WordPress configuration failed: %s", cmd)
-            return False
-    return True
+import logging
 
 
 def _get_post_id_by_slug(domain: str, slug: str) -> int:
@@ -280,4 +178,3 @@ def enable_auto_updates(domain: str) -> bool:
 def site_has_wp_config(domain: str) -> bool:
     site_path = Path(SITE_ROOT_DIR) / domain
     return (site_path / "wp-config.php").exists()
-

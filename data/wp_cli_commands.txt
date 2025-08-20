@@ -70,5 +70,5 @@ theme delete twentytwentyfour
 plugin delete akismet
 plugin delete hello
 
-post create --post_type=wpforms --post_status=publish --post_title="Contact Us" --post_content="$(cat /home/ffunk/codex/web_projects/auto-local-wp/data/wp_form-simple.json)"
+post create --post_type=wpforms --post_status=publish --post_title="Contact Us" --post_content="$(cat /home/ffunk/PROJECTS/auto-local-wp/data/wp_form-simple.json)"
 

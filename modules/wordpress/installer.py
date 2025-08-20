@@ -18,14 +18,20 @@ from .cli import wp_cmd
 from .db import ensure_db_and_user, _db_exists, _db_user_exists
 from .site import (
     ensure_site_dir,
-    build_preset_config,
-    apply_preset_config,
     setup_starter_pages_and_menu,
     enable_auto_updates,
     site_has_wp_config,
 )
-from .plugins import install_plugins, install_custom_plugins, provision_elementor
-from .themes import install_themes
+from .plugins import (
+    install_custom_plugins,
+    install_custom_themes,
+    sync_plugins_state_from_vault,
+    activate_vault_theme,
+    prune_themes_not_in_vault,
+    remove_default_plugins,
+    provision_elementor,
+)
+from .cli import wp_cmd
 
 
 def install_wordpress(domain: str) -> bool:
@@ -99,14 +105,20 @@ def preflight_create(domain: str) -> bool:
 def setup_wordpress(domain: str) -> bool:
     if not install_wordpress(domain):
         return False
-    preset = build_preset_config()
-    if not install_plugins(domain, preset["plugins"]):
-        return False
+    # Remove default bundled plugins before installing vault plugins
+    remove_default_plugins(domain)
     if not install_custom_plugins(domain):
         return False
-    if not install_themes(domain, preset["themes"]):
+    if not install_custom_themes(domain):
         return False
-    if not apply_preset_config(domain, preset):
+    if not sync_plugins_state_from_vault(domain):
+        return False
+    if not activate_vault_theme(domain):
+        return False
+    # Remove any non-vault themes after activating the vault theme
+    prune_themes_not_in_vault(domain)
+    # Run custom WP-CLI commands from data/wp_cli_commands.txt
+    if not _run_wp_cli_commands_file(domain):
         return False
     if not provision_elementor(domain):
         return False
@@ -117,3 +129,37 @@ def setup_wordpress(domain: str) -> bool:
     log(f"PASS: WordPress setup complete for {domain}")
     return True
 
+
+# ─── Custom Commands File ───────────────────────────────────────────────
+ROOT_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = ROOT_DIR / "data"
+
+
+def _read_wp_cli_commands() -> list[str]:
+    path = DATA_DIR / "wp_cli_commands.txt"
+    if not path.exists():
+        return []
+    commands: list[str] = []
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = (raw or "").strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                continue
+            commands.append(line)
+    except Exception as err:
+        logging.error("Could not read %s: %s", path, err)
+        return []
+    return commands
+
+
+def _run_wp_cli_commands_file(domain: str) -> bool:
+    commands = _read_wp_cli_commands()
+    if not commands:
+        return True
+    for cmd in commands:
+        if not wp_cmd(domain, cmd):
+            logging.error("Custom WP-CLI command failed: %s", cmd)
+            return False
+    return True
