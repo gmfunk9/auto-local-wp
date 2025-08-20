@@ -23,10 +23,6 @@ Provision local WordPress sites with Nginx, MariaDB, and `/etc/hosts`.
 - `docs/` — logs and checklist
   - `AGENTSLOG.md`, `CHECKLIST.md`, `smol-stuf-to-fix.md`
 
-Coding rules: see AGENTS.md
-
-- must test wp command installing the wp_form json. method works but haven't tried in this setup. -- actually, the output "Success: Created post 245." when that command is used might be useful as WP forms creates shortcode: `[wpforms id="245"]	` we can only get that ID when we make that page? - no we could always just query for the post data at any time. --- yeah i tested, and this is not working. 1,) the commands are being run before the plugins are downloading. 2,) I added wpforms-lite to 'plugins.tsv' but the code did not install wpforms-lite. 
-
 
 ## Elementor Seeding Flow
 
@@ -43,3 +39,11 @@ Coding rules: see AGENTS.md
 - Expected output: Elementor plugin is active, the template is imported
   into the Elementor library, a new page is created with the template
   applied, and permalinks are flushed.
+
+## Logging
+
+- Console: terse PASS/FAIL lines only, each with a run-id.
+- Files: detailed logs at `log/autolocal-<run-id>.log` (rotating).
+- Correlate: use the run-id shown in console to open the matching log file.
+
+Coding rules: see AGENTS.md

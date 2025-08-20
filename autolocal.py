@@ -6,11 +6,12 @@ Side effects: creates Nginx vhost, site directory, runs wp-cli, updates
 /etc/hosts, and reloads Nginx. Removal deletes vhost and site directory
 and cleans hosts entry.
 """
+import os
 import sys
 import subprocess
 from pathlib import Path
 from config import SITE_ROOT_DIR
-from modules.utils import run_cmd, log
+from modules.utils import run_cmd, log, init_logging, status_pass, status_fail
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent.absolute()
@@ -28,11 +29,7 @@ def run_script(script_name: str, args: list[str]) -> bool:
         run_cmd(cmd)
         return True
     except subprocess.CalledProcessError as err:
-        print(
-            f"FAIL: {script_name} failed (exit {err.returncode})",
-            file=sys.stderr,
-        )
-        print(f"COMMAND: {' '.join(cmd)}", file=sys.stderr)
+        status_fail(f"{script_name} exit={err.returncode}; see log")
         return False
 
 
@@ -87,54 +84,63 @@ def remove_site_dir(domain: str) -> bool:
     if not site_dir.exists():
         return True
     if not _is_safe_site_dir(site_dir, domain):
-        print(f"FAIL: Unsafe remove path {site_dir}", file=sys.stderr)
+        status_fail(f"unsafe remove path {site_dir}")
         return False
     try:
         run_cmd(["sudo", "rm", "-rf", str(site_dir)])
         log(f"PASS: Removed site directory {site_dir}")
         return True
     except subprocess.CalledProcessError:
-        print(f"FAIL: Could not remove site directory {site_dir}", file=sys.stderr)
+        status_fail(f"could not remove site dir {site_dir}")
         return False
 
 def provision_site(domain: str, preset: str | None = None) -> bool:
     if not step_wp_preflight(domain):
         return False
+    status_pass("wp preflight")
     if not step_nginx_write(domain):
         return False
+    status_pass("nginx write")
     if not step_nginx_test():
         return False
+    status_pass("nginx test")
     if not step_nginx_reload():
         return False
+    status_pass("nginx reload")
     if not step_dns_add(domain):
         return False
+    status_pass("dns add")
     if not step_wp_create(domain, preset=preset):
         return False
-    log(f"PASS: Site {domain} created successfully")
+    status_pass(f"site {domain} created successfully")
     return True
 
 def remove_site(domain: str) -> bool:
     if not run_script(MOD_NGINX, ["remove", domain]):
         return False
+    status_pass("nginx remove")
     if not step_nginx_test():
         return False
+    status_pass("nginx test")
     if not step_nginx_reload():
         return False
+    status_pass("nginx reload")
     if not step_dns_remove(domain):
         return False
+    status_pass("dns remove")
     if not remove_site_dir(domain):
         return False
+    status_pass("site dir remove")
     if not step_wp_remove(domain):
         return False
-    log(f"PASS: Site {domain} removed successfully")
+    status_pass(f"site {domain} removed successfully")
     return True
 
 def main(argv: list[str]) -> int:
+    # Initialize logging and run-id
+    rid = init_logging(None)
     if len(argv) < 2:
-        print(
-            "Usage: autolocal.py --create DOMAIN | --remove DOMAIN",
-            file=sys.stderr,
-        )
+        status_fail("usage: --create DOMAIN | --remove DOMAIN")
         return 1
     action, domain = argv[0], argv[1]
     # Optional --preset=KEY-V passthrough
@@ -144,7 +150,8 @@ def main(argv: list[str]) -> int:
             preset = a.split("=", 1)[1]
             break
     if action == FLAG_CREATE:
-        # Provision site and pass preset along to WP module
+        # Ensure subprocs inherit run-id
+        os.environ["AUTOLOCAL_RID"] = rid
         ok = provision_site(domain, preset=preset)
         if not ok:
             return 1
@@ -154,8 +161,9 @@ def main(argv: list[str]) -> int:
         # Already executed step_wp_create inside provision_site; nothing else here.
         return 0
     if action == FLAG_REMOVE:
+        os.environ["AUTOLOCAL_RID"] = rid
         return 0 if remove_site(domain) else 1
-    print("Must specify --create or --remove", file=sys.stderr)
+    status_fail("must specify --create or --remove")
     return 1
 
 if __name__ == "__main__":

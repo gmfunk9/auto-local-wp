@@ -7,7 +7,7 @@ Host file management lives in modules.dns.
 import sys
 from pathlib import Path
 from config import NGINX_VHOST_DIR, SITE_ROOT_DIR, PHP_FPM_SOCKET
-from modules.utils import run_cmd, log
+from modules.utils import run_cmd, log, init_logging, status_fail
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 TEMPLATE_FILE = DATA_DIR / "nginx_server_block.txt"
@@ -62,17 +62,17 @@ def remove_nginx_config(server_name: str) -> None:
 
 
 if __name__ == "__main__":
+    init_logging(None)
     argv = sys.argv[1:]
     if not argv:
-        print(
-            "usage: nginx.py write <server> [--root PATH] | remove <server> | test | reload",
-            file=sys.stderr,
+        status_fail(
+            "usage: write <server> [--root PATH] | remove <server> | test | reload"
         )
         raise SystemExit(2)
     cmd = argv[0]
     if cmd == "write":
         if len(argv) < 2:
-            print("FAIL: Missing server name", file=sys.stderr)
+            status_fail("Missing server name")
             raise SystemExit(2)
         server = argv[1]
         root = None
@@ -82,7 +82,7 @@ if __name__ == "__main__":
         raise SystemExit(0)
     if cmd == "remove":
         if len(argv) < 2:
-            print("FAIL: Missing server name", file=sys.stderr)
+            status_fail("Missing server name")
             raise SystemExit(2)
         remove_nginx_config(argv[1])
         raise SystemExit(0)
@@ -92,8 +92,7 @@ if __name__ == "__main__":
     if cmd == "reload":
         reload_nginx()
         raise SystemExit(0)
-    print(
-        "usage: nginx.py write <server> [--root PATH] | remove <server> | test | reload",
-        file=sys.stderr,
+    status_fail(
+        "usage: nginx.py write <server> [--root PATH] | remove <server> | test | reload"
     )
     raise SystemExit(2)

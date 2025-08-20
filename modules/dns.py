@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from config import HOSTS_FILE, LOCALHOST_IP
-from modules.utils import log
+from modules.utils import log, init_logging, status_fail
 
 
 def _read_hosts() -> Tuple[List[str], int, int, int]:
@@ -46,10 +46,7 @@ def _write_hosts_atomic(
         os.replace(tmp_path, str(path))
         return True
     except Exception as err:
-        print(
-            f"FAIL: Could not write hosts file: {err}",
-            file=sys.stderr,
-        )
+        status_fail(f"Could not write hosts file: {err}")
         return False
 
 
@@ -104,8 +101,9 @@ def remove_host(domain: str) -> bool:
 
 
 def main() -> int:
+    init_logging(None)
     if len(sys.argv) < 2:
-        print("FAIL: Missing domain", file=sys.stderr)
+        status_fail("missing domain")
         return 1
     domain = sys.argv[1]
     do_remove = "--remove" in sys.argv

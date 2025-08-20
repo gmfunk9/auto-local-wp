@@ -28,21 +28,6 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
 
 
-def _append_agent_activity_log(line: str) -> None:
-    path = ROOT_DIR / "AGENT_ACTIVITY.log"
-    try:
-        from datetime import datetime
-
-        ts = datetime.utcnow().isoformat() + "Z"
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(f"{ts} {line}\n")
-    except Exception:
-        pass
-
-
-# Marketplace install removed. Vault-only policy.
-
-
 VAULT_SITE = Path("/srv/http/funkpd_plugin_vault.local")
 # Vault content root (wp-content). Keep separate from VAULT_SITE (site root).
 VAULT_CONTENT = VAULT_SITE / "wp-content"
@@ -475,7 +460,6 @@ def provision_elementor(domain: str) -> bool:
         logging.error("rewrite flush failed")
         return False
 
-    _append_agent_activity_log(f"provision_elementor domain={domain} pages={seeded}")
     log(f"PASS: Elementor seeding complete for {seeded} pages")
     return True
 
@@ -615,8 +599,5 @@ def provision_elementor_from_vault_preset(domain: str, preset: str) -> bool:
         logging.error("Elementor CSS flush failed")
         return False
 
-    _append_agent_activity_log(
-        f"provision_elementor_from_vault preset={preset} domain={domain} pages={seeded}"
-    )
     log(f"PASS: Vault Elementor seeding complete for {seeded} pages")
     return True

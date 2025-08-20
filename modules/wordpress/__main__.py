@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from modules.utils import init_logging, status_fail
 from .installer import (
     preflight_create,
     install_wordpress,
@@ -18,27 +19,23 @@ from .site import (
 
 
 def _init_logging() -> None:
-    if not logging.getLogger().handlers:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(levelname)s: %(message)s",
-        )
+    # Use shared logging scheme with run-id propagation.
+    init_logging(None)
 
 
 def main() -> int:
     _init_logging()
     argv = sys.argv[1:]
     if not argv:
-        logging.error(
-            "usage: wordpress [--preflight|--create|--remove] <domain> | "
-            "preflight|core|starter|updates|remove <domain>"
+        status_fail(
+            "usage: [--preflight|--create|--remove] <domain> | preflight|core|starter|updates|remove <domain>"
         )
         return 1
     flags = [a for a in argv if a.startswith("--")]
     args = [a for a in argv if not a.startswith("--")]
     if flags:
         if len(args) < 1:
-            logging.error("Missing domain")
+            status_fail("missing domain")
             return 1
         domain = args[0]
         preset = None
@@ -52,11 +49,11 @@ def main() -> int:
             return 0 if preflight_create(domain) else 1
         if "--create" in flags:
             return 0 if setup_wordpress(domain, preset=preset) else 1
-        logging.error("Unknown flag")
+        status_fail("unknown flag")
         return 1
     cmd = args[0]
     if len(args) < 2:
-        logging.error("Missing domain")
+        status_fail("missing domain")
         return 1
     domain = args[1]
     if cmd == "preflight":
@@ -70,7 +67,7 @@ def main() -> int:
         return 0 if enable_auto_updates(domain) else 1
     if cmd == "remove":
         return 0 if remove_wordpress(domain) else 1
-    logging.error("Unknown subcommand")
+    status_fail("unknown subcommand")
     return 1
 
 
