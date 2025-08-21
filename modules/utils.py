@@ -15,7 +15,9 @@ from logging.handlers import RotatingFileHandler
 import pwd
 import shlex
 import subprocess
-from typing import List, Sequence
+from typing import List, Sequence, Any
+import re
+import json
 
 
 _RUN_ID = ""
@@ -157,3 +159,47 @@ def _normalize_wp_parts(command: str | Sequence[str]) -> list[str]:
         return parts
     logging.error("Unsupported command type: %s", type(command).__name__)
     return []
+
+
+def _strip_ansi(text: str) -> str:
+    try:
+        return re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
+    except Exception:
+        return text
+
+
+def parse_json_relaxed(text: str, default: Any) -> Any:
+    """Parse JSON with basic tolerance for noise.
+
+    - Strips BOM and ANSI codes
+    - Extracts substring between first '[' and last ']' or first '{' and last '}'
+    - Returns default on failure
+    """
+    if text is None:
+        return default
+    try:
+        s = text.lstrip("\ufeff").strip()
+        s = _strip_ansi(s)
+        try:
+            return json.loads(s)
+        except Exception:
+            pass
+        # Try bracketed array
+        lb = s.find("[")
+        rb = s.rfind("]")
+        if lb != -1 and rb != -1 and rb > lb:
+            try:
+                return json.loads(s[lb : rb + 1])
+            except Exception:
+                pass
+        # Try object
+        lb = s.find("{")
+        rb = s.rfind("}")
+        if lb != -1 and rb != -1 and rb > lb:
+            try:
+                return json.loads(s[lb : rb + 1])
+            except Exception:
+                pass
+    except Exception:
+        return default
+    return default

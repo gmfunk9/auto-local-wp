@@ -8,7 +8,7 @@ from typing import Iterable
 
 from config import SITE_ROOT_DIR
 from modules.utils import log
-from .cli import wp_cmd, wp_cmd_capture
+from .cli import wp_cmd, wp_cmd_capture, wp_cmd_json
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -40,17 +40,18 @@ import logging
 
 
 def _get_post_id_by_slug(domain: str, slug: str) -> int:
-    ok, out, _ = wp_cmd_capture(
-        domain, f"post list --post_type=page --name={slug} --field=ID"
+    ok, rows = wp_cmd_json(
+        domain, [
+            "post", "list", "--post_type=page", f"--name={slug}", "--fields=ID",
+        ]
     )
-    if not ok:
-        return 0
-    out = (out or "").strip()
-    if not out:
+    if not ok or not isinstance(rows, list) or not rows:
         return 0
     try:
-        return int(out.split()[0])
-    except ValueError:
+        first = rows[0]
+        val = first.get("ID") if isinstance(first, dict) else None
+        return int(val) if val is not None else 0
+    except Exception:
         return 0
 
 
@@ -72,9 +73,14 @@ def _ensure_page(domain: str, title: str, slug: str, content: str) -> int:
     if not ok:
         return 0
     try:
-        return int((out or "0").strip())
+        pid = int((out or "0").strip())
+        if pid > 0:
+            return pid
     except ValueError:
-        return 0
+        pass
+    # Fallback: re-query by slug in case create printed a message
+    # instead of the ID while still creating the post.
+    return _get_post_id_by_slug(domain, slug)
 
 
 def _set_static_front_page(domain: str, page_id: int) -> bool:
