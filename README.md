@@ -24,21 +24,12 @@ Provision local WordPress sites with Nginx, MariaDB, and `/etc/hosts`.
   - `AGENTSLOG.md`, `CHECKLIST.md`, `smol-stuf-to-fix.md`
 
 
-## Elementor Seeding Flow
+## Elementor
 
-- Purpose: seeds a starter Elementor page from a JSON template so new
-  sites are Elementor-ready out of the box.
-
-- Config variables (in `config.py`):
-  - `ELEMENTOR_SEED`: 1 enables seeding, set to 0 to disable.
-  - `ELEMENTOR_TPL_PATH`: path to template JSON to import.
-  - `ELEMENTOR_PAGE_TITLE`: title for the created Elementor page.
-
-- How to enable/disable: set `ELEMENTOR_SEED` to `1` or `0`.
-
-- Expected output: Elementor plugin is active, the template is imported
-  into the Elementor library, a new page is created with the template
-  applied, and permalinks are flushed.
+- Vault-only seeding: Elementor content is provisioned from a preset in
+  the vault when `--preset=KEY-V` is supplied during `--create`.
+- Without a preset: Elementor seeding is skipped. No local template
+  files are used.
 
 ## Logging
 

@@ -20,13 +20,4 @@ DEFAULT_WP_EMAIL = "admin@localhost.local"
 DB_USER = "funkad"
 DB_PASS = ""
 
-# Elementor seeding defaults
-# 1 enables seeding; set to 0 to disable
-ELEMENTOR_SEED = 1
-# Path to Elementor template JSON to import
-ELEMENTOR_TPL_PATH = (
-    "data/elementor-page-templates/"
-    "fp_fullpage-about-landscaping.json"
-)
-# Title for the page created from the template
-ELEMENTOR_PAGE_TITLE = "Test Elementor Page"
+# Elementor: seeding handled via vault presets only

@@ -30,7 +30,6 @@ from .plugins_themes import (
     prune_themes_not_in_vault,
     remove_default_plugins,
 )
-from .elementor_templates import provision_elementor
 from .elementor_vault import provision_elementor_from_vault_preset
 from .cli import wp_cmd
 
@@ -122,8 +121,7 @@ def setup_wordpress(domain: str, preset: str | None = None) -> bool:
         if not provision_elementor_from_vault_preset(domain, preset):
             return False
     else:
-        if not provision_elementor(domain):
-            return False
+        log("INFO: Skipping Elementor seeding (no preset)")
     if not setup_starter_pages_and_menu(domain):
         return False
     if not enable_auto_updates(domain):
