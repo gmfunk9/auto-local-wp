@@ -77,27 +77,24 @@ def remove_wordpress(domain: str) -> bool:
 
 def preflight_create(domain: str) -> bool:
     logging.info("PREFLIGHT START")
-    failed = False
     site_path = Path(SITE_ROOT_DIR) / domain
     if site_has_wp_config(domain):
         logging.error(
             "Site directory exists with wp-config.php; refusing to overwrite"
         )
-        failed = True
+        return False
     ident = db_ident(domain)
     dbname = ident
     dbuser = ident
     if _db_exists(dbname):
         logging.error("Database already exists: %s", dbname)
-        failed = True
+        return False
     if _db_user_exists(dbuser):
         logging.error("Database user already exists: %s@localhost", dbuser)
-        failed = True
+        return False
     vhost = Path(NGINX_VHOST_DIR) / f"{domain}.conf"
     if vhost.exists():
         logging.error("Nginx vhost already exists: %s", vhost)
-        failed = True
-    if failed:
         return False
     log("PASS: Preflight checks passed")
     return True

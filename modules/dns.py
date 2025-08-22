@@ -60,13 +60,15 @@ def add_host(ip: str, domain: str) -> bool:
     for line in lines:
         has_tag = tag in line
         has_domain = domain in line
-        if has_tag and has_domain:
-            removed += 1
-            continue
+        if has_tag:
+            if has_domain:
+                removed += 1
+                continue
         kept.append(line)
 
-    if removed == 0 and desired in lines:
-        return True
+    if removed == 0:
+        if desired in lines:
+            return True
 
     kept.append(desired)
     ok = _write_hosts_atomic(kept, mode, uid, gid)
@@ -85,9 +87,10 @@ def remove_host(domain: str) -> bool:
     for line in lines:
         has_tag = tag in line
         has_domain = domain in line
-        if has_tag and has_domain:
-            removed += 1
-            continue
+        if has_tag:
+            if has_domain:
+                removed += 1
+                continue
         kept.append(line)
 
     if removed == 0:

@@ -36,16 +36,16 @@ def _append_unique(items: list[str], value: str) -> None:
     items.append(value)
 
 
-import logging
-
-
 def _get_post_id_by_slug(domain: str, slug: str) -> int:
     ok, rows = wp_cmd_json(
-        domain, [
-            "post", "list", "--post_type=page", f"--name={slug}", "--fields=ID",
-        ]
+        domain,
+        ["post", "list", "--post_type=page", f"--name={slug}", "--fields=ID"],
     )
-    if not ok or not isinstance(rows, list) or not rows:
+    if not ok:
+        return 0
+    if not isinstance(rows, list):
+        return 0
+    if not rows:
         return 0
     try:
         first = rows[0]
@@ -95,11 +95,15 @@ def _set_static_front_page(domain: str, page_id: int) -> bool:
 
 def _menu_exists(domain: str, name: str) -> bool:
     ok, rows = wp_cmd_json(domain, ["menu", "list", "--fields=name"])
-    if not ok or not isinstance(rows, list):
+    if not ok:
+        return False
+    if not isinstance(rows, list):
         return False
     for item in rows:
         try:
-            if (item.get("name") or "").strip() == name:
+            item_name = item.get("name") or ""
+            cleaned = item_name.strip()
+            if cleaned == name:
                 return True
         except Exception:
             continue
@@ -116,7 +120,9 @@ def _menu_item_object_ids(domain: str, name: str) -> set[int]:
     ok, rows = wp_cmd_json(
         domain, ["menu", "item", "list", name, "--fields=object_id"]
     )
-    if not ok or not isinstance(rows, list):
+    if not ok:
+        return set()
+    if not isinstance(rows, list):
         return set()
     ids: set[int] = set()
     for item in rows:

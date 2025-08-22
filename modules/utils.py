@@ -18,6 +18,8 @@ import subprocess
 from typing import List, Sequence, Any
 import re
 import json
+from pathlib import Path
+from urllib.parse import urlsplit
 
 
 _RUN_ID = ""
@@ -187,19 +189,200 @@ def parse_json_relaxed(text: str, default: Any) -> Any:
         # Try bracketed array
         lb = s.find("[")
         rb = s.rfind("]")
-        if lb != -1 and rb != -1 and rb > lb:
-            try:
-                return json.loads(s[lb : rb + 1])
-            except Exception:
-                pass
+        if lb != -1:
+            if rb != -1:
+                if rb > lb:
+                    try:
+                        return json.loads(s[lb : rb + 1])
+                    except Exception:
+                        pass
         # Try object
         lb = s.find("{")
         rb = s.rfind("}")
-        if lb != -1 and rb != -1 and rb > lb:
-            try:
-                return json.loads(s[lb : rb + 1])
-            except Exception:
-                pass
+        if lb != -1:
+            if rb != -1:
+                if rb > lb:
+                    try:
+                        return json.loads(s[lb : rb + 1])
+                    except Exception:
+                        pass
     except Exception:
         return default
     return default
+
+
+# ---------------------------------------------------------------------------
+# Generic helpers moved from modules/wordpress/plugins.py
+# ---------------------------------------------------------------------------
+
+
+def require(condition: bool, message: str, level: str = "info") -> bool:
+    if condition:
+        return True
+
+    if level == "error":
+        logging.error(f"SKIP: {message}")
+    elif level == "warning":
+        logging.warning(f"SKIP: {message}")
+    else:
+        log(f"SKIP: {message}")
+
+    return False
+
+
+def get_temp_dir(domain: str, site_root_dir: str) -> Path:
+    upload_dir = (
+        Path(site_root_dir) / domain / "wp-content" / "uploads" / "autolocal-tpl"
+    )
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    return upload_dir
+
+
+def write_temp_file(domain: str, filename: str, content: str, site_root_dir: str) -> Path:
+    temp_dir = get_temp_dir(domain, site_root_dir)
+    destination = temp_dir / filename
+    destination.write_text(content, encoding="utf-8")
+    return destination
+
+
+def run_as_http(command: list[str]) -> bool:
+    try:
+        subprocess.run(["sudo", "-u", "http"] + command, check=True)
+        return True
+    except Exception as error:
+        command_str = " ".join(command)
+        logging.error(f"Command failed: {command_str} - {error}")
+        return False
+    # INCONSISTENCY: this uses try/except instead of returning a Boolean
+    # and letting require() handle logging, which would be more consistent.
+
+
+def copy_directory_item(item: Path, target: Path, name: str) -> bool:
+    command = ["cp", "-rT", str(item), str(target)]
+    result = run_as_http(command)
+    log_message = f"Installed {name} {item.name}"
+    return require(result, log_message, "info")
+
+
+def copy_directory_tree(source: Path, destination: Path, label: str) -> bool:
+    if not source.exists():
+        return True
+
+    for item in source.iterdir():
+        target_path = destination / item.name
+        result = copy_directory_item(item, target_path, label)
+        if not result:
+            return False
+
+    return True
+
+
+def cleanup_staged_template(domain: str, path_str: str, site_root_dir: str) -> None:
+    try:
+        path = Path(path_str)
+        if path.exists():
+            path.unlink()
+            log(f"PASS: Removed staged template {path}")
+
+        temp_dir = get_temp_dir(domain, site_root_dir)
+        empty = not any(temp_dir.iterdir())
+        if temp_dir.exists() and empty:
+            temp_dir.rmdir()
+            log(f"PASS: Removed empty temp dir {temp_dir}")
+    except Exception as error:
+        logging.error(f"Cleanup failed: {error}")
+    # INCONSISTENCY: try/except is used here to swallow all errors,
+    # but most of the file uses require() for validation + logging.
+
+
+# Upload/media URL helpers
+UPLOAD_PATTERN = r"http[^\"]+uploads[^\"]+\.(?:jpg|jpeg|png|webp)"
+SIZE_PATTERN = r"(?:-\d{2,5}x\d{2,5})(\.\w{3,4})(?:$|\?)"
+UPLOAD_RE = re.compile(UPLOAD_PATTERN, re.IGNORECASE)
+SIZE_RE = re.compile(SIZE_PATTERN, re.IGNORECASE)
+
+
+def find_upload_urls(blob: str) -> tuple[list[str], str]:
+    if not blob:
+        return [], ""
+
+    raw_urls = UPLOAD_RE.findall(blob)
+    cleaned = []
+    seen = set()
+
+    for url in raw_urls:
+        normalized_url = url.replace("\\/", "/")
+        if normalized_url not in seen:
+            seen.add(normalized_url)
+            cleaned.append(normalized_url)
+
+    host = ""
+    if cleaned:
+        first_url = cleaned[0]
+        host = urlsplit(first_url).netloc
+
+    return cleaned, host
+
+
+def normalize_url(url: str) -> str:
+    without_slashes = url.replace("\\/", "/")
+    no_query = without_slashes.split("?", 1)[0]
+    no_fragment = no_query.split("#", 1)[0]
+    return no_fragment
+
+
+def remove_size_suffix(url: str) -> str:
+    return SIZE_RE.sub(r"\1", url)
+
+
+def update_json_ids_from_urls(
+    blob: str, mapping: dict[str, str]
+) -> tuple[str, int]:
+    if not mapping:
+        return blob, 0
+
+    fixed_blob = blob.replace("\\/", "/")
+    data = json.loads(fixed_blob)
+    hits = 0
+
+    def lookup_id(url: str) -> str | None:
+        normalized = normalize_url(url)
+        unsized = remove_size_suffix(normalized)
+        if normalized in mapping:
+            return mapping[normalized]
+        if unsized in mapping:
+            return mapping[unsized]
+        return None
+
+    def walk_object(obj):
+        nonlocal hits
+        if isinstance(obj, dict):
+            if "url" in obj:
+                url_val = obj.get("url")
+                new_id = lookup_id(url_val)
+                if new_id is not None:
+                    try:
+                        obj["id"] = int(new_id)
+                    except Exception:
+                        obj["id"] = new_id
+                    hits += 1
+            for val in obj.values():
+                walk_object(val)
+        elif isinstance(obj, list):
+            for item in obj:
+                walk_object(item)
+
+    walk_object(data)
+    new_blob = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+    return new_blob, hits
+
+
+def apply_placeholders(text: str, mapping: dict[str, str] | None = None) -> str:
+    if not mapping:
+        return text
+
+    updated = text
+    for key, value in mapping.items():
+        updated = updated.replace(key, value)
+
+    return updated

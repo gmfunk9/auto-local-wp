@@ -1,15 +1,26 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 import shutil
-import subprocess
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from config import SITE_ROOT_DIR, ELEMENTOR_SEED, ELEMENTOR_TPL_PATH
-from modules.utils import log
+from modules.utils import (
+    log,
+    require,
+    run_as_http,
+    get_temp_dir,
+    write_temp_file,
+    copy_directory_item,
+    copy_directory_tree,
+    cleanup_staged_template,
+    normalize_url,
+    remove_size_suffix,
+    find_upload_urls,
+    update_json_ids_from_urls,
+    apply_placeholders,
+)
 from .cli import wp_cmd, wp_cmd_capture, wp_cmd_json, wp_cmd_json_at_path
 from .site import get_site_plugins_dir, _ensure_page
 
@@ -18,70 +29,10 @@ DATA_DIR = ROOT_DIR / "data"
 VAULT_SITE = Path("/srv/http/funkpd_plugin_vault.local")
 VAULT_CONTENT = VAULT_SITE / "wp-content"
 
-UPLOAD_PATTERN = r"http[^\"]+uploads[^\"]+\.(?:jpg|jpeg|png|webp)"
-SIZE_PATTERN = r"(?:-\d{2,5}x\d{2,5})(\.\w{3,4})(?:$|\?)"
-
-UPLOAD_RE = re.compile(UPLOAD_PATTERN, re.IGNORECASE)
-SIZE_RE = re.compile(SIZE_PATTERN, re.IGNORECASE)
+ 
 
 
-def require(condition: bool, message: str, level: str = "info") -> bool:
-    if condition:
-        return True
-
-    if level == "error":
-        logging.error(f"SKIP: {message}")
-    elif level == "warning":
-        logging.warning(f"SKIP: {message}")
-    else:
-        log(f"SKIP: {message}")
-
-    return False
-
-
-def get_temp_dir(domain: str) -> Path:
-    upload_dir = Path(SITE_ROOT_DIR) / domain / "wp-content" / "uploads" / "autolocal-tpl"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    return upload_dir
-
-
-def write_temp_file(domain: str, filename: str, content: str) -> Path:
-    temp_dir = get_temp_dir(domain)
-    destination = temp_dir / filename
-    destination.write_text(content, encoding="utf-8")
-    return destination
-
-
-def run_as_http(command: list[str]) -> bool:
-    try:
-        subprocess.run(["sudo", "-u", "http"] + command, check=True)
-        return True
-    except Exception as error:
-        command_str = " ".join(command)
-        logging.error(f"Command failed: {command_str} - {error}")
-        return False
-    # INCONSISTENCY: this uses try/except instead of returning a Boolean
-    # and letting require() handle logging, which would be more consistent.
-
-
-def copy_directory_item(item: Path, target: Path, name: str) -> bool:
-    command = ["cp", "-rT", str(item), str(target)]
-    result = run_as_http(command)
-    log_message = f"Installed {name} {item.name}"
-    return require(result, log_message, "info")
-
-
-def copy_directory_tree(source: Path, destination: Path, label: str) -> bool:
-    if not source.exists():
-        return True
-
-    for item in source.iterdir():
-        target_path = destination / item.name
-        result = copy_directory_item(item, target_path, label)
-        if not result:
-            return False
-
-    return True
+ 
 
 
 def install_custom_plugins(domain: str) -> bool:
@@ -199,11 +150,16 @@ def prune_themes_not_in_vault(domain: str) -> bool:
         theme_name = str(theme.get("name", "")).strip()
         in_vault = theme_name in vault_names
 
-        if theme_name and not in_vault:
-            deleted = wp_cmd(domain, ["theme", "delete", theme_name])
-            result = require(deleted, f"Deleted theme not in vault: {theme_name}", "warning")
-            if not result:
-                all_successful = False
+        if not theme_name:
+            continue
+        if in_vault:
+            continue
+        deleted = wp_cmd(domain, ["theme", "delete", theme_name])
+        result = require(
+            deleted, f"Deleted theme not in vault: {theme_name}", "warning"
+        )
+        if not result:
+            all_successful = False
 
     return all_successful
 
@@ -212,7 +168,9 @@ def list_elementor_templates() -> list[Path]:
     base = DATA_DIR / "elementor-page-templates"
     exists = base.exists()
     is_dir = base.is_dir()
-    if not exists or not is_dir:
+    if not exists:
+        return []
+    if not is_dir:
         return []
 
     templates = []
@@ -262,7 +220,7 @@ def stage_elementor_template(domain: str, src_path: Path) -> str:
     if not require(exists, f"Template not found: {src_path}", "error"):
         return ""
 
-    dest = get_temp_dir(domain) / src_path.name
+    dest = get_temp_dir(domain, SITE_ROOT_DIR) / src_path.name
     if dest.exists():
         dest.unlink()
 
@@ -271,44 +229,7 @@ def stage_elementor_template(domain: str, src_path: Path) -> str:
     return str(dest)
 
 
-def cleanup_staged_template(domain: str, path_str: str) -> None:
-    try:
-        path = Path(path_str)
-        if path.exists():
-            path.unlink()
-            log(f"PASS: Removed staged template {path}")
-
-        temp_dir = get_temp_dir(domain)
-        empty = not any(temp_dir.iterdir())
-        if temp_dir.exists() and empty:
-            temp_dir.rmdir()
-            log(f"PASS: Removed empty temp dir {temp_dir}")
-    except Exception as error:
-        logging.error(f"Cleanup failed: {error}")
-    # INCONSISTENCY: try/except is used here to swallow all errors,
-    # but most of the file uses require() for validation + logging.
-
-
-def find_upload_urls(blob: str) -> tuple[list[str], str]:
-    if not blob:
-        return [], ""
-
-    raw_urls = UPLOAD_RE.findall(blob)
-    cleaned = []
-    seen = set()
-
-    for url in raw_urls:
-        normalized_url = url.replace("\\/", "/")
-        if normalized_url not in seen:
-            seen.add(normalized_url)
-            cleaned.append(normalized_url)
-
-    host = ""
-    if cleaned:
-        first_url = cleaned[0]
-        host = urlsplit(first_url).netloc
-
-    return cleaned, host
+ 
 
 
 def import_media_from_vault(domain: str, clean_url: str) -> str:
@@ -345,67 +266,25 @@ def import_media_from_vault(domain: str, clean_url: str) -> str:
     return ""
 
 
-def normalize_url(url: str) -> str:
-    without_slashes = url.replace("\\/", "/")
-    no_query = without_slashes.split("?", 1)[0]
-    no_fragment = no_query.split("#", 1)[0]
-    return no_fragment
-
-
-def remove_size_suffix(url: str) -> str:
-    return SIZE_RE.sub(r"\1", url)
-
-
-def update_json_ids_from_urls(blob: str, mapping: dict[str, str]) -> tuple[str, int]:
-    if not mapping:
-        return blob, 0
-
-    fixed_blob = blob.replace("\\/", "/")
-    data = json.loads(fixed_blob)
-    hits = 0
-
-    def lookup_id(url: str) -> str | None:
-        normalized = normalize_url(url)
-        unsized = remove_size_suffix(normalized)
-        if normalized in mapping:
-            return mapping[normalized]
-        if unsized in mapping:
-            return mapping[unsized]
-        return None
-
-    def walk_object(obj):
-        nonlocal hits
-        if isinstance(obj, dict):
-            if "url" in obj:
-                url_val = obj.get("url")
-                new_id = lookup_id(url_val)
-                if new_id is not None:
-                    try:
-                        obj["id"] = int(new_id)
-                    except Exception:
-                        obj["id"] = new_id
-                    hits += 1
-            for val in obj.values():
-                walk_object(val)
-        elif isinstance(obj, list):
-            for item in obj:
-                walk_object(item)
-
-    walk_object(data)
-    new_blob = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-    return new_blob, hits
+ 
 
 
 def update_post_meta_from_file(domain: str, post_id: int, key: str, value: str) -> bool:
+    temp_dir = get_temp_dir(domain, SITE_ROOT_DIR)
+    json_path = temp_dir / f"{key}-{post_id}.json"
+    php_path = temp_dir / f"setmeta-{key}-{post_id}.php"
+
     php_code = (
         f'<?php $p={post_id}; $k="{key}"; '
-        f'$f="{get_temp_dir(domain)}/{key}-{post_id}.json"; '
+        f'$f="{json_path}"; '
         '$v=file_get_contents($f); update_post_meta($p,$k,$v); echo "OK";'
     )
 
     try:
-        json_file = write_temp_file(domain, f"{key}-{post_id}.json", value)
-        php_file = write_temp_file(domain, f"setmeta-{key}-{post_id}.php", php_code)
+        json_file = write_temp_file(domain, f"{key}-{post_id}.json", value, SITE_ROOT_DIR)
+        php_file = write_temp_file(
+            domain, f"setmeta-{key}-{post_id}.php", php_code, SITE_ROOT_DIR
+        )
 
         success = wp_cmd(domain, ["eval-file", str(php_file)])
 
@@ -431,15 +310,7 @@ def parse_preset(preset: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def apply_placeholders(text: str, mapping: dict[str, str] | None = None) -> str:
-    if not mapping:
-        return text
-
-    updated = text
-    for key, value in mapping.items():
-        updated = updated.replace(key, value)
-
-    return updated
+ 
 
 
 def get_vault_page_id(slug: str) -> str:
@@ -459,8 +330,14 @@ def get_vault_meta(post_id: str, key: str) -> str:
         VAULT_SITE,
         ["post", "meta", "list", post_id, f"--keys={key}", "--fields=meta_value"],
     )
-    valid = ok and isinstance(rows, list) and rows
-    if not require(valid, f"No {key} for vault page {post_id}", "error"):
+    if not ok:
+        require(False, f"No {key} for vault page {post_id}", "error")
+        return ""
+    if not isinstance(rows, list):
+        require(False, f"No {key} for vault page {post_id}", "error")
+        return ""
+    if not rows:
+        require(False, f"No {key} for vault page {post_id}", "error")
         return ""
     value = str(rows[0].get("meta_value", ""))
     return value
@@ -468,10 +345,13 @@ def get_vault_meta(post_id: str, key: str) -> str:
 
 def get_or_create_page(domain: str, slug: str, title: str) -> int:
     ok, rows = wp_cmd_json(
-        domain, ["post", "list", "--post_type=page", f"--name={slug}", "--fields=ID"]
+        domain,
+        ["post", "list", "--post_type=page", f"--name={slug}", "--fields=ID"],
     )
-    if ok and isinstance(rows, list) and rows:
-        return int(rows[0].get("ID", 0))
+    if ok:
+        if isinstance(rows, list):
+            if rows:
+                return int(rows[0].get("ID", 0))
 
     ok, created, _ = wp_cmd_capture(
         domain,
@@ -523,13 +403,14 @@ def import_elementor_template(domain: str, template_path: str) -> str:
             "--user=1",
         ],
     )
-    cleanup_staged_template(domain, staged_path)
+    cleanup_staged_template(domain, staged_path, SITE_ROOT_DIR)
 
     if not require(ok, f"Elementor template import failed for {template_path}", "error"):
         return ""
 
-    if isinstance(data, list) and data:
-        return str(data[-1]).strip()
+    if isinstance(data, list):
+        if data:
+            return str(data[-1]).strip()
 
     if isinstance(data, (int, float, str)):
         return str(data).strip()
@@ -697,7 +578,11 @@ def provision_elementor(domain: str) -> bool:
 
 def provision_elementor_from_vault_preset(domain: str, preset: str) -> bool:
     key, version = parse_preset(preset)
-    if not require(bool(key and version), f"Invalid preset value: {preset}", "error"):
+    has_key = bool(key)
+    if not require(has_key, f"Invalid preset value: {preset}", "error"):
+        return False
+    has_version = bool(version)
+    if not require(has_version, f"Invalid preset value: {preset}", "error"):
         return False
 
     elementor_version = get_elementor_version(domain)

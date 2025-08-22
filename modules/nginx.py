@@ -47,7 +47,9 @@ def reload_nginx() -> None:
 
 
 def create_nginx_config(server_name: str, root_dir: Path | None = None) -> None:
-    if not server_name or "." not in server_name:
+    if not server_name:
+        raise ValueError("server_name must be FQDN like 'example.local'")
+    if "." not in server_name:
         raise ValueError("server_name must be FQDN like 'example.local'")
     site_dir = root_dir or (Path(SITE_ROOT_DIR) / server_name)
     write_vhost(server_name, site_dir)

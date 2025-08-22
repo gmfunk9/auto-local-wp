@@ -64,8 +64,14 @@ def _drop_noise_lines(text: str) -> list[str]:
     return out
 
 def _unquote_token(tok: str) -> str:
-    if len(tok) >= 2 and ((tok[0] == tok[-1] == '"') or (tok[0] == tok[-1] == "'")):
-        return tok[1:-1]
+    if len(tok) < 2:
+        return tok
+    if tok[0] == '"':
+        if tok[-1] == '"':
+            return tok[1:-1]
+    if tok[0] == "'":
+        if tok[-1] == "'":
+            return tok[1:-1]
     return tok
 
 def _decode_scalar_maybe_json(one: str) -> Any:
@@ -105,9 +111,11 @@ def _target_to_path(target: Union[str, Path]) -> Path:
 def _wp_base_argv(site_path: Path) -> list[str]:
     parts = [WP_CLI_PATH, f"--path={site_path}"]
     http_uid = _http_uid()
-    if http_uid > 0 and os.geteuid() != http_uid:
-        return ["sudo", "-u", "http"] + parts
-    return parts
+    if http_uid <= 0:
+        return parts
+    if os.geteuid() == http_uid:
+        return parts
+    return ["sudo", "-u", "http"] + parts
 
 def _sanitize_parts(parts: list[str]) -> list[str]:
     # drop any leading 'wp' or explicit binary tokens (repeat to be safe)
@@ -123,8 +131,10 @@ def _sanitize_parts(parts: list[str]) -> list[str]:
         if p.startswith("--path="):
             continue
         if p == "--path":
-            if i + 1 < len(parts) and not parts[i+1].startswith("-"):
-                skip_next = True
+            if i + 1 < len(parts):
+                nextp = parts[i + 1]
+                if not nextp.startswith("-"):
+                    skip_next = True
             continue
         cleaned.append(p)
     return cleaned
@@ -141,8 +151,10 @@ def _fmt_cmd_for_log(args: list[str]) -> str:
         return ""
     # strip sudo -u http prefix for display
     start = 0
-    if args[0] == "sudo" and len(args) >= 4 and args[1] == "-u":
-        start = 3
+    if args[0] == "sudo":
+        if len(args) >= 4:
+            if args[1] == "-u":
+                start = 3
     # replace absolute binary path with 'wp' for readability
     pretty = ["wp"] + args[start+1:]
     return " ".join(pretty)
@@ -235,7 +247,11 @@ def _parse_json_loose(combined: str, readish: bool = False) -> Any | None:
 # ── Public API ──────────────────────────────────────────────────────────────────
 def _looks_like_read_cmd(parts: list[str]) -> bool:
     s = set(parts)
-    if "list" in s or "get" in s or "search" in s:
+    if "list" in s:
+        return True
+    if "get" in s:
+        return True
+    if "search" in s:
         return True
     return any(p.startswith("--fields=") for p in parts)
 
@@ -259,10 +275,14 @@ def wp_cmd_json(domain: str, command: Any, timeout: int = WP_TIMEOUT) -> Tuple[b
 
     readish = bool(parts and _looks_like_read_cmd(parts))
     # For read-ish commands, try to coerce JSON at the source.
-    if readish and not any(p.startswith("--format=") for p in parts):
-        parts = _append_format_json(parts)
-        logging.debug("Augmented command with --format=json etc.")
-        ok, out, err, code = _wp_run(domain, parts, timeout=timeout)
+    if readish:
+        has_format = any(p.startswith("--format=") for p in parts)
+        if not has_format:
+            parts = _append_format_json(parts)
+            logging.debug("Augmented command with --format=json etc.")
+            ok, out, err, code = _wp_run(domain, parts, timeout=timeout)
+        else:
+            ok, out, err, code = _wp_run(domain, parts, timeout=timeout)
     else:
         ok, out, err, code = _wp_run(domain, parts, timeout=timeout)
 
@@ -287,13 +307,17 @@ def wp_cmd_json(domain: str, command: Any, timeout: int = WP_TIMEOUT) -> Tuple[b
         # unfuck case: JSON string that itself looks like JSON
         if isinstance(data, str):
             stripped = data.strip()
-            if stripped and stripped[0] in "[{":
-                try:
-                    inner = json.loads(stripped)
-                    data = inner
-                    logging.debug("wp_cmd_json: unwrapped nested JSON string")
-                except Exception:
-                    pass
+            if stripped:
+                first = stripped[0]
+                if first in "[{":
+                    try:
+                        inner = json.loads(stripped)
+                        data = inner
+                        logging.debug(
+                            "wp_cmd_json: unwrapped nested JSON string"
+                        )
+                    except Exception:
+                        pass
 
     return ok, data
 

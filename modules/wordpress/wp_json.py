@@ -19,12 +19,18 @@ def extract_json_blob(s: str) -> Optional[str]:
         return None
     lb = s.find("[")
     lb2 = s.find("{")
-    if lb == -1 and lb2 == -1:
-        return None
-    if lb == -1 or (lb2 != -1 and lb2 < lb):
+    if lb == -1:
+        if lb2 == -1:
+            return None
         start, open_c, close_c = lb2, "{", "}"
     else:
-        start, open_c, close_c = lb, "[", "]"
+        if lb2 == -1:
+            start, open_c, close_c = lb, "[", "]"
+        else:
+            if lb2 < lb:
+                start, open_c, close_c = lb2, "{", "}"
+            else:
+                start, open_c, close_c = lb, "[", "]"
 
     depth = 0
     in_str = False
@@ -48,4 +54,3 @@ def extract_json_blob(s: str) -> Optional[str]:
             if depth == 0:
                 return s[start : i + 1]
     return None
-
