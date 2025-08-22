@@ -18,7 +18,7 @@ Goal: clean, reliable, vim-editable code; no cleverness. Keep scope tight and fo
 
 ## Phase 2 — Elementor seeding hardening
 - [ ] Use file-based meta updates to avoid arg length limits:
-  - [ ] In `modules/wordpress/plugins.py`, replace direct `_elementor_data` `wp post meta update` with `_update_post_meta_from_file()`.
+  - [ ] In `modules/wordpress/elementor_templates.py`, replace direct `_elementor_data` `wp post meta update` with `_update_post_meta_from_file()`.
 - [ ] Deterministic media/id remap:
   - [ ] Deduplicate helpers (`_normalize_url`, `_unsize`), keep single definitions.
   - [ ] Remove `[JUIFU ...]` prints; use `logging`/`log`; keep walker small and explicit.
@@ -35,8 +35,8 @@ Goal: clean, reliable, vim-editable code; no cleverness. Keep scope tight and fo
 - [ ] Call `verify_provision(domain)` at end of `setup_wordpress()`; fail if verification fails.
 
 ## Phase 4 — Cleanup & readability
-- [ ] Remove dead/duplicate imports and helpers in `modules/wordpress/plugins.py`.
-- [ ] Add one-sentence docstrings for exported functions (SRP, inputs/outputs) across `site.py`, `plugins.py`, `installer.py`.
+- [ ] Remove dead/duplicate imports and helpers in `modules/wordpress/elementor_templates.py`.
+- [ ] Add one-sentence docstrings for exported functions (SRP, inputs/outputs) across `site.py`, `elementor_templates.py`, `plugins_themes.py`, `installer.py`.
 - [ ] Ensure early returns, one condition per line; reduce nesting.
 - [ ] Keep line lengths ~≤80 cols where practical.
 
@@ -54,7 +54,7 @@ Goal: clean, reliable, vim-editable code; no cleverness. Keep scope tight and fo
 - `modules/wordpress/cli.py` (doc note)
 - `modules/wordpress/site.py` (JSON menus, verify helpers, docs)
 - `modules/wordpress/installer.py` (call `verify_provision`, docs)
-- `modules/wordpress/plugins.py` (seeding cleanup, file-based meta, dedupe helpers)
+- `modules/wordpress/elementor_templates.py` (seeding cleanup, file-based meta, dedupe helpers)
 - `config.py` (confirm vault/template toggles/paths)
 
 ## Status Notes

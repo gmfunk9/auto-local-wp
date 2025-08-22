@@ -25,7 +25,7 @@
 - Option 2 is the smallest change surface and relies on Elementor/editor tolerance to URL-only correctness.
 
 **Touch Points (later implementation)**
-- `modules/wordpress/plugins.py`
+- `modules/wordpress/elementor_templates.py`
   - Replace `_first_upload_url` with `_find_upload_urls` (multi-URL regex) in the preset flow.
   - Apply the same multi-URL import + host swap in the non-vault flow around the template meta copy.
   - Add `wp elementor flush_css` to the non-vault flow after seeding.

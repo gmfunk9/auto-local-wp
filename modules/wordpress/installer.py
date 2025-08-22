@@ -22,16 +22,16 @@ from .site import (
     enable_auto_updates,
     site_has_wp_config,
 )
-from .plugins import (
+from .plugins_themes import (
     install_custom_plugins,
     install_custom_themes,
     sync_plugins_state_from_vault,
     activate_vault_theme,
     prune_themes_not_in_vault,
     remove_default_plugins,
-    provision_elementor,
-    provision_elementor_from_vault_preset,
 )
+from .elementor_templates import provision_elementor
+from .elementor_vault import provision_elementor_from_vault_preset
 from .cli import wp_cmd
 
 
