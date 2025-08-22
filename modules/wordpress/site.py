@@ -94,13 +94,15 @@ def _set_static_front_page(domain: str, page_id: int) -> bool:
 
 
 def _menu_exists(domain: str, name: str) -> bool:
-    ok, out, _ = wp_cmd_capture(domain, "menu list --format=csv --fields=name")
-    if not ok:
+    ok, rows = wp_cmd_json(domain, ["menu", "list", "--fields=name"])
+    if not ok or not isinstance(rows, list):
         return False
-    lines = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
-    for ln in lines[1:] if len(lines) > 1 else []:
-        if ln.strip() == name:
-            return True
+    for item in rows:
+        try:
+            if (item.get("name") or "").strip() == name:
+                return True
+        except Exception:
+            continue
     return False
 
 
@@ -111,19 +113,19 @@ def _ensure_menu(domain: str, name: str) -> bool:
 
 
 def _menu_item_object_ids(domain: str, name: str) -> set[int]:
-    ok, out, _ = wp_cmd_capture(
-        domain, f"menu item list '{name}' --fields=object_id --format=ids"
+    ok, rows = wp_cmd_json(
+        domain, ["menu", "item", "list", name, "--fields=object_id"]
     )
-    if not ok:
-        return set()
-    txt = (out or "").strip()
-    if not txt:
+    if not ok or not isinstance(rows, list):
         return set()
     ids: set[int] = set()
-    for token in txt.split():
+    for item in rows:
         try:
-            ids.add(int(token))
-        except ValueError:
+            raw = item.get("object_id") if isinstance(item, dict) else None
+            if raw is None:
+                continue
+            ids.add(int(str(raw).strip()))
+        except Exception:
             continue
     return ids
 

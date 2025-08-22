@@ -1,10 +1,14 @@
 # cli.py
-# Assumptions:
-# - Return JSON-like data only to callers of wp_cmd_json/wp_cmd_capture.
-# - Read-ish commands (list/get/search/--fields) should parse/emit JSON; write-ish may emit [].
-# - Ignore PHP/WP-CLI noise in parsing; do not rely on caller flags.
-# - Accept command shapes with or without leading "wp" or "--path"; sanitize both.
-# - Logging must never show "wp /usr/bin/wp" duplication; show "wp …" only.
+# Invariants (Phase-1 WP-CLI JSON consistency):
+# - All WP-CLI access goes through these wrappers; callers never build flags.
+# - Read-ish commands are coerced to JSON at the source by appending:
+#     --format=json --quiet --no-color --skip-plugins --skip-themes
+# - Parsing strips ANSI and PHP/WP noise and extracts real JSON when present.
+# - Public wrappers return structured types; wp_cmd_capture returns a JSON string
+#   of that structure; when output is empty, emit an empty JSON (e.g. []).
+# - Accept commands with or without leading "wp"/"--path"; sanitize duplicates.
+# - Logs: one PASS/FAIL per call; console stays minimal; file logs keep details.
+# - Displayed command in logs never shows duplicated binaries; prefer "wp …".
 
 from __future__ import annotations
 
@@ -279,7 +283,20 @@ def wp_cmd_json(domain: str, command: Any, timeout: int = WP_TIMEOUT) -> Tuple[b
         data = []
     else:
         logging.debug("wp_cmd_json: parsed JSON-like type=%s", type(data).__name__)
+
+        # unfuck case: JSON string that itself looks like JSON
+        if isinstance(data, str):
+            stripped = data.strip()
+            if stripped and stripped[0] in "[{":
+                try:
+                    inner = json.loads(stripped)
+                    data = inner
+                    logging.debug("wp_cmd_json: unwrapped nested JSON string")
+                except Exception:
+                    pass
+
     return ok, data
+
 
 def wp_cmd(domain: str, command, timeout: int = WP_TIMEOUT) -> bool:
     """

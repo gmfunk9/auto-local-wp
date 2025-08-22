@@ -223,12 +223,17 @@ def _pick_template_for_page(templates: List[Path], key: str) -> Path | None:
 
 
 def _get_elementor_version(domain: str) -> str:
-    ok, ver, _ = wp_cmd_capture(
-        domain, ["plugin", "get", "elementor", "--field=version"]
-    )
+    ok, data = wp_cmd_json(domain, ["plugin", "get", "elementor", "--field=version"])
     if not ok:
         return ""
-    return (ver or "").strip()
+    try:
+        if isinstance(data, (int, float)):
+            return str(data)
+        if isinstance(data, str):
+            return data.strip()
+    except Exception:
+        pass
+    return ""
 
 
 def stage_elementor_tpl(domain: str, src) -> str:
@@ -317,32 +322,28 @@ def _import_media_from_vault(domain: str, clean_url: str) -> str:
     rel = clean_url[idx:]  # keep '/wp-content/uploads/...'
     src = VAULT_SITE / rel.lstrip("/")
 
-    ok, out, err = wp_cmd_capture(domain, ["media", "import", str(src), "--porcelain"])
+    ok, data = wp_cmd_json(domain, ["media", "import", str(src), "--porcelain"])
     if not ok:
-        logging.error("wp media import failed for %s: %s", src, err)
+        logging.error("wp media import failed for %s", src)
         return ""
-
-    # Prefer stdout, but it may contain PHP warnings. Extract last numeric token.
-    text = (out or "") + "\n" + (err or "")
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    if not lines:
-        logging.error("media import returned empty output for %s", src)
-        return ""
-
-    # Look for the last line that ends with an integer, or any numeric-only line.
-    import re
-    for ln in reversed(lines):
-        m = re.search(r"(\d+)\s*$", ln)
-        if m:
-            return m.group(1)
-
-    # Fallback: find any numeric token anywhere in output
-    for ln in lines:
-        toks = re.findall(r"\d+", ln)
-        if toks:
-            return toks[-1]
-
-    logging.warning("media import returned no numeric id for %s; raw out=%s err=%s", src, out, err)
+    # Accept int, str, or list of token-ish values; pick the last id.
+    try:
+        if isinstance(data, (int, float)):
+            return str(int(data))
+        if isinstance(data, str):
+            import re as _re
+            m = _re.findall(r"\d+", data)
+            return m[-1] if m else ""
+        if isinstance(data, list):
+            # find last numeric-looking token
+            for val in reversed(data):
+                try:
+                    return str(int(str(val).strip()))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    logging.warning("media import returned no numeric id for %s; data=%r", src, data)
     return ""
 
 
@@ -396,7 +397,6 @@ def json_update_ids_from_urls(blob: str, mapping: dict) -> tuple[str, int]:
     Returns (new_blob_str, hits_count).
     """
     if not mapping:
-        print("[JUIFU DEBUG] No mapping provided, returning blob unchanged")
         return blob, 0
 
     data = json.loads(blob.replace("\\/", "/"))
@@ -406,7 +406,6 @@ def json_update_ids_from_urls(blob: str, mapping: dict) -> tuple[str, int]:
         nu = _normalize_url(u)
         unsized = _unsize(nu)
         nid = mapping.get(nu) or mapping.get(unsized)
-        print(f"[JUIFU LOOKUP] url={u} normalized={nu} unsized={unsized} -> id={nid}")
         return nid
 
     def walk(obj, path="root"):
@@ -422,9 +421,8 @@ def json_update_ids_from_urls(blob: str, mapping: dict) -> tuple[str, int]:
                     except Exception:
                         obj["id"] = nid
                     hits += 1
-                    print(f"[JUIFU UPDATE] {path}: id {old} -> {obj['id']} for {u}")
                 else:
-                    print(f"[JUIFU SKIP] {path}: url {u} not in mapping")
+                    pass
             for k, v in obj.items():
                 walk(v, f"{path}.{k}")
         elif isinstance(obj, list):
@@ -432,9 +430,7 @@ def json_update_ids_from_urls(blob: str, mapping: dict) -> tuple[str, int]:
                 walk(v, f"{path}[{i}]")
         # primitives ignored
 
-    print("[JUIFU DEBUG] Starting walk")
     walk(data)
-    print(f"[JUIFU DEBUG] Completed walk, hits={hits}")
     return json.dumps(data, separators=(",", ":"), ensure_ascii=False), hits
 
 
@@ -475,7 +471,7 @@ def provision_elementor(domain: str) -> bool:
         log("SKIP: Elementor seeding disabled by config")
         return True
 
-    ok, _, _ = wp_cmd_capture(domain, ["plugin", "is-active", "elementor"])
+    ok = wp_cmd(domain, ["plugin", "is-active", "elementor"])
     if not ok:
         log("SKIP: Elementor not active; skipping seeding (no auto-install)")
         return True
@@ -516,7 +512,7 @@ def provision_elementor(domain: str) -> bool:
         if not staged:
             return False
 
-        ok, out, err = wp_cmd_capture(
+        ok, data = wp_cmd_json(
             domain,
             [
                 "elementor",
@@ -528,10 +524,21 @@ def provision_elementor(domain: str) -> bool:
             ],
         )
         _cleanup_staged_tpl(domain, staged)
-        if not ok or not out.strip():
-            logging.error("Elementor template import failed for %s: %s", slug, err)
+        if not ok:
+            logging.error("Elementor template import failed for %s", slug)
             return False
-        tpl_id = out.splitlines()[-1].strip()
+        # data may be scalar or list; extract last id as string
+        tpl_id = ""
+        try:
+            if isinstance(data, list) and data:
+                tpl_id = str(data[-1]).strip()
+            elif isinstance(data, (int, float, str)):
+                tpl_id = str(data).strip()
+        except Exception:
+            tpl_id = ""
+        if not tpl_id:
+            logging.error("No template id returned for %s", slug)
+            return False
         log(f"PASS: Imported template {tpl_id} for {slug}")
 
         ok, rows = wp_cmd_json(
@@ -762,4 +769,3 @@ def _apply_placeholders_stub(text: str, mapping: dict[str, str] | None = None) -
         # swallow to avoid breaking provisioning pipeline
         pass
     return text
-
