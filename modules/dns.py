@@ -112,9 +112,13 @@ def main() -> int:
     do_remove = "--remove" in sys.argv
     if do_remove:
         ok = remove_host(domain)
-        return 0 if ok else 1
+        if ok:
+            return 0
+        return 1
     ok = add_host(LOCALHOST_IP, domain)
-    return 0 if ok else 1
+    if ok:
+        return 0
+    return 1
 
 
 if __name__ == "__main__":

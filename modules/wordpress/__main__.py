@@ -44,11 +44,20 @@ def main() -> int:
                 preset = f.split("=", 1)[1]
                 break
         if "--remove" in flags:
-            return 0 if remove_wordpress(domain) else 1
+            ok = remove_wordpress(domain)
+            if ok:
+                return 0
+            return 1
         if "--preflight" in flags:
-            return 0 if preflight_create(domain) else 1
+            ok = preflight_create(domain)
+            if ok:
+                return 0
+            return 1
         if "--create" in flags:
-            return 0 if setup_wordpress(domain, preset=preset) else 1
+            ok = setup_wordpress(domain, preset=preset)
+            if ok:
+                return 0
+            return 1
         status_fail("unknown flag")
         return 1
     cmd = args[0]
@@ -57,16 +66,31 @@ def main() -> int:
         return 1
     domain = args[1]
     if cmd == "preflight":
-        return 0 if preflight_create(domain) else 1
+        ok = preflight_create(domain)
+        if ok:
+            return 0
+        return 1
     if cmd == "core":
-        return 0 if install_wordpress(domain) else 1
+        ok = install_wordpress(domain)
+        if ok:
+            return 0
+        return 1
     # marketplace plugin/theme install and preset commands removed (vault-only)
     if cmd == "starter":
-        return 0 if setup_starter_pages_and_menu(domain) else 1
+        ok = setup_starter_pages_and_menu(domain)
+        if ok:
+            return 0
+        return 1
     if cmd == "updates":
-        return 0 if enable_auto_updates(domain) else 1
+        ok = enable_auto_updates(domain)
+        if ok:
+            return 0
+        return 1
     if cmd == "remove":
-        return 0 if remove_wordpress(domain) else 1
+        ok = remove_wordpress(domain)
+        if ok:
+            return 0
+        return 1
     status_fail("unknown subcommand")
     return 1
 

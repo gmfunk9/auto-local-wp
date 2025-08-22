@@ -16,7 +16,9 @@ def main():
         ["post","meta","list", SOURCE_PAGE,
          "--keys=_elementor_data","--fields=meta_value"]
     )
-    if not ok or not rows:
+    if not ok:
+        raise SystemExit("failed to fetch _elementor_data from vault page 27")
+    if not rows:
         raise SystemExit("failed to fetch _elementor_data from vault page 27")
     blob = rows[0]["meta_value"]
 
@@ -34,12 +36,14 @@ def main():
         ["post","meta","list", TARGET_PAGE,
          "--keys=_elementor_data","--fields=meta_value"]
     )
-    if ok and rows:
-        size = len(rows[0]["meta_value"])
-        print(f"verification: homepage {TARGET_PAGE} _elementor_data length = {size} bytes")
-    else:
+    if not ok:
         print("verification failed")
+        return
+    if not rows:
+        print("verification failed")
+        return
+    size = len(rows[0]["meta_value"])
+    print(f"verification: homepage {TARGET_PAGE} _elementor_data length = {size} bytes")
 
 if __name__ == "__main__":
     main()
-

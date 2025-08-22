@@ -32,15 +32,23 @@ def _extract_last_json_line(text: str) -> Any | None:
 def _iter_files(args: list[str]) -> list[Path]:
     if not args:
         base = Path("tests/_artifacts")
-        if not base.exists():
+        exists = base.exists()
+        if not exists:
             return []
-        return [p for p in sorted(base.iterdir()) if p.is_file()]
+        files: list[Path] = []
+        for p in sorted(base.iterdir()):
+            if p.is_file():
+                files.append(p)
+        return files
     out: list[Path] = []
     for a in args:
         p = Path(a)
         if p.is_dir():
-            out.extend([x for x in sorted(p.iterdir()) if x.is_file()])
-        elif p.exists():
+            for x in sorted(p.iterdir()):
+                if x.is_file():
+                    out.append(x)
+            continue
+        if p.exists():
             out.append(p)
     return out
 
@@ -60,4 +68,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

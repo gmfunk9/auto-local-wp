@@ -234,7 +234,8 @@ def _parse_json_loose(combined: str, readish: bool = False) -> Any | None:
         one = lines[0].strip()
         if not one:
             return None
-        return _decode_scalar_maybe_json(one)
+        value = _decode_scalar_maybe_json(one)
+        return value
 
     # Multi-line porcelain → collect simple tokens
     toks = _collect_simple_tokens(lines)
@@ -242,7 +243,10 @@ def _parse_json_loose(combined: str, readish: bool = False) -> Any | None:
         return [_cast_token(_unquote_token(t)) for t in toks]
 
     # Fallback to first cleaned line as string
-    return lines[0].strip() if lines else None
+    if lines:
+        first_line = lines[0].strip()
+        return first_line
+    return None
 
 # ── Public API ──────────────────────────────────────────────────────────────────
 def _looks_like_read_cmd(parts: list[str]) -> bool:
@@ -286,7 +290,11 @@ def wp_cmd_json(domain: str, command: Any, timeout: int = WP_TIMEOUT) -> Tuple[b
     else:
         ok, out, err, code = _wp_run(domain, parts, timeout=timeout)
 
-    combined = (out or "") + (("\n" + err) if err else "")
+    prefix = out or ""
+    suffix = ""
+    if err:
+        suffix = "\n" + err
+    combined = prefix + suffix
     if err:
         clean_err = _drop_noise_lines(err)
         logging.debug("Stderr (len %d): %s", len(err), clean_err[:3])

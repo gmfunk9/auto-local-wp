@@ -125,7 +125,14 @@ def log(msg: str) -> None:
 
 
 def db_ident(domain: str) -> str:
-    return "".join(c if c.isalnum() else "_" for c in domain)
+    parts: list[str] = []
+    for char in domain:
+        if char.isalnum():
+            parts.append(char)
+            continue
+        parts.append("_")
+    identifier = "".join(parts)
+    return identifier
 
 
 def _http_uid() -> int:

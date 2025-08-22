@@ -46,12 +46,20 @@ def main() -> int:
         status_fail(f"theme list failed for {domain}")
         return 1
 
+    plugins_count = 0
+    if isinstance(plugins, list):
+        plugins_count = len(plugins)
+
+    themes_count = 0
+    if isinstance(themes, list):
+        themes_count = len(themes)
+
     result = {
         "domain": domain,
         "home": home,
         "siteurl": siteurl,
-        "plugins_count": len(plugins) if isinstance(plugins, list) else 0,
-        "themes_count": len(themes) if isinstance(themes, list) else 0,
+        "plugins_count": plugins_count,
+        "themes_count": themes_count,
     }
     print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
     status_pass(f"hello-wordpress ok for {domain}")

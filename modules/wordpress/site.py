@@ -49,8 +49,13 @@ def _get_post_id_by_slug(domain: str, slug: str) -> int:
         return 0
     try:
         first = rows[0]
-        val = first.get("ID") if isinstance(first, dict) else None
-        return int(val) if val is not None else 0
+        value = None
+        if isinstance(first, dict):
+            value = first.get("ID")
+        if value is None:
+            return 0
+        number = int(value)
+        return number
     except Exception:
         return 0
 
@@ -127,10 +132,13 @@ def _menu_item_object_ids(domain: str, name: str) -> set[int]:
     ids: set[int] = set()
     for item in rows:
         try:
-            raw = item.get("object_id") if isinstance(item, dict) else None
+            raw = None
+            if isinstance(item, dict):
+                raw = item.get("object_id")
             if raw is None:
                 continue
-            ids.add(int(str(raw).strip()))
+            cleaned = str(raw).strip()
+            ids.add(int(cleaned))
         except Exception:
             continue
     return ids

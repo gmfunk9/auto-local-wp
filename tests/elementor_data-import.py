@@ -81,12 +81,21 @@ def _resolve_page_id(domain: str | None, path: str | None, slug: str) -> int:
             f"--name={slug}",
             "--fields=ID",
         ])
-    if not ok or not isinstance(rows, list) or not rows:
+    if not ok:
+        return 0
+    if not isinstance(rows, list):
+        return 0
+    if not rows:
         return 0
     try:
         first = rows[0]
-        val = first.get("ID") if isinstance(first, dict) else None
-        return int(val) if val is not None else 0
+        value = None
+        if isinstance(first, dict):
+            value = first.get("ID")
+        if value is None:
+            return 0
+        number = int(value)
+        return number
     except Exception:
         return 0
 
@@ -148,7 +157,11 @@ def _write_file(domain: str | None, path: str | None, post_id: int, blob: str) -
     )
     ppath.write_text(pcode, encoding="utf-8")
     try:
-        dom_or_path = str(path) if path else (domain or DEFAULT_DOMAIN)
+        dom_or_path = ""
+        if path:
+            dom_or_path = str(path)
+        else:
+            dom_or_path = domain or DEFAULT_DOMAIN
         ok = wp_cmd(dom_or_path, ["eval-file", str(ppath)])
         return ok
     finally:
@@ -172,7 +185,11 @@ def _write_file_slash(domain: str | None, path: str | None, post_id: int, blob: 
     )
     ppath.write_text(pcode, encoding="utf-8")
     try:
-        dom_or_path = str(path) if path else (domain or DEFAULT_DOMAIN)
+        dom_or_path = ""
+        if path:
+            dom_or_path = str(path)
+        else:
+            dom_or_path = domain or DEFAULT_DOMAIN
         ok = wp_cmd(dom_or_path, ["eval-file", str(ppath)])
         return ok
     finally:
@@ -188,11 +205,15 @@ def _load_payload(domain: str | None, path: str | None, args) -> str:
         return Path(args.blob_file).read_text(encoding="utf-8")
     if args.from_page:
         ok, s = _read_meta(domain, path, int(args.from_page))
-        return s if ok else ""
+        if ok:
+            return s
+        return ""
     if args.from_tpl:
         # Elementor stores data under the template post as well
         ok, s = _read_meta(domain, path, int(args.from_tpl))
-        return s if ok else ""
+        if ok:
+            return s
+        return ""
     return ""
 
 
